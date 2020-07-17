@@ -6,7 +6,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <androidx.appcompat.widget.AppCompatImageView
+    <ImageView
         android:id="@+id/screenshotButton"
         android:layout_width="64dp"
         android:layout_height="64dp"
@@ -16,18 +16,9 @@
         android:scaleType="centerInside"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
+        android:tint="@color/dark_gray"
         android:filterTouchesWhenObscured="true"
         app:srcCompat="@drawable/ic_twotone_camera"
-        tools:ignore="ContentDescription" />
-
-    <ImageView
-        android:id="@+id/previewScreenshotImageView"
-        android:layout_width="60dp"
-        android:layout_height="60dp"
-        android:layout_marginStart="16dp"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/screenshotButton"
-        app:srcCompat="@drawable/wildrift_logo"
         tools:ignore="ContentDescription" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
