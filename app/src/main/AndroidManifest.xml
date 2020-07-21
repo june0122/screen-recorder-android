@@ -15,7 +15,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.NoActionBar">
-        <service android:name="com.june0122.overlay_sample.ui.service.ForegroundService"
+        <service android:name="com.june0122.overlay_sample.service.ForegroundService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaProjection"

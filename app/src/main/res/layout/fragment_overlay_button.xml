@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout
+    android:id="@+id/OverlayLayout"
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -10,14 +11,13 @@
         android:id="@+id/screenshotButton"
         android:layout_width="64dp"
         android:layout_height="64dp"
-        android:layout_marginStart="16dp"
         android:layout_marginTop="16dp"
         android:background="@drawable/circular_button"
+        android:filterTouchesWhenObscured="true"
         android:scaleType="centerInside"
+        android:tint="@color/dark_gray"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        android:tint="@color/dark_gray"
-        android:filterTouchesWhenObscured="true"
         app:srcCompat="@drawable/ic_twotone_camera"
         tools:ignore="ContentDescription" />
 

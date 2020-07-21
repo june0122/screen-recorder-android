@@ -1,4 +1,4 @@
-package com.june0122.overlay_sample.ui.service
+package com.june0122.overlay_sample.service
 
 import android.annotation.SuppressLint
 import android.app.NotificationChannel
@@ -21,9 +21,6 @@ import com.june0122.overlay_sample.ui.activity.MainActivity
 
 class ForegroundService : Service() {
     private val serviceId = "Foreground Service Example"
-
-//    protected val context: Context
-//        get() = this
 
     companion object {
         fun startService(context: Context, message: String) {
@@ -50,6 +47,7 @@ class ForegroundService : Service() {
         val notification = NotificationCompat.Builder(this, serviceId)
                 .setContentTitle("AHAM INTERNSHIP EXAMPLE")
                 .setContentText(input)
+//                .addAction(R.drawable.ic_close, "Button 1", )
                 .setSmallIcon(R.drawable.ic_lol_logo)
                 .setLargeIcon(largeIconBitmap)
                 .setContentIntent(pendingIntent)
@@ -57,7 +55,6 @@ class ForegroundService : Service() {
 
         createNotificationChannel()
         startForeground(1, notification)
-        //stopSelf();
 
         return START_NOT_STICKY
     }
@@ -80,9 +77,5 @@ class ForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
     }
 }
