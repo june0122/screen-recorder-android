@@ -5,7 +5,6 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.os.Build
 import android.view.*
-import androidx.core.view.GravityCompat
 import com.june0122.overlay_sample.R
 
 
@@ -51,7 +50,7 @@ class OverlayViewManager constructor(
         themedContext = null
     }
 
-    /* package */
+    // package
     internal class OverlayViewContext(base: Context?) :
         ContextThemeWrapper(base, R.style.AppTheme) {
         private var inflater: LayoutInflater? = null

@@ -7,11 +7,10 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <ImageView
+    <com.june0122.overlay_sample.utils.OverlayImageButton
         android:id="@+id/screenshotButton"
         android:layout_width="64dp"
         android:layout_height="64dp"
-        android:layout_marginTop="16dp"
         android:background="@drawable/circular_button"
         android:filterTouchesWhenObscured="true"
         android:scaleType="centerInside"

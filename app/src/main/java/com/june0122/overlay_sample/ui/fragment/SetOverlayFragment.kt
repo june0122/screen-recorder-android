@@ -1,6 +1,7 @@
 package com.june0122.overlay_sample.ui.fragment
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Activity.RESULT_OK
 import android.content.Context
@@ -23,33 +24,41 @@ import android.util.Log
 import android.view.*
 import android.widget.ImageView
 import android.widget.Toast
+import androidx.appcompat.widget.AppCompatImageButton
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.june0122.overlay_sample.R
 import com.june0122.overlay_sample.service.ForegroundService
 import com.june0122.overlay_sample.service.ForegroundService.Companion.startService
 import com.june0122.overlay_sample.service.ForegroundService.Companion.stopService
+import com.june0122.overlay_sample.utils.OverlayImageButton.Companion.MAX_CLICK_DURATION
 import kotlinx.android.synthetic.main.fragment_set_overlay.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.Dispatchers.Main
 import java.nio.ByteBuffer
+import java.util.*
+import kotlin.collections.ArrayList
 
 
 class SetOverlayFragment : Fragment() {
     companion object {
         const val ACTION_MANAGE_OVERLAY_PERMISSION_REQUEST_CODE = 1
         const val PERMISSIONS_MULTIPLE_REQUEST = 2
-        const val REQUEST_MEDIA_PROJECTION = 1001
+        const val REQUEST_MEDIA_PROJECTION_SCREENSHOT = 1001
+        const val REQUEST_MEDIA_PROJECTION_VIDEO = 1002
     }
+
+    private lateinit var mContext: Context
+    private lateinit var mActivity: Activity
+    private lateinit var overlayView: View
+    private lateinit var overlayButton: AppCompatImageButton
+    private lateinit var params: WindowManager.LayoutParams
 
     private val requiredPermissionList = arrayListOf(
             Manifest.permission.WRITE_EXTERNAL_STORAGE,
             Manifest.permission.READ_EXTERNAL_STORAGE,
             Manifest.permission.RECORD_AUDIO
     )
-
-    private lateinit var mContext: Context
-    private lateinit var mActivity: Activity
 
     private var screenDensity: Int = 0
     private var displayWidth: Int = 0
@@ -58,11 +67,11 @@ class SetOverlayFragment : Fragment() {
     private var mpManager: MediaProjectionManager? = null
     private var imageReader: ImageReader? = null
     private var virtualDisplay: VirtualDisplay? = null
-    private var tempDisplayImageView: ImageView? = null
+    private var captureResultImageView: ImageView? = null
     private var wm: WindowManager? = null
-
-    private lateinit var overlayView: View
-    private lateinit var params: WindowManager.LayoutParams
+    private var startClickTime: Long = 0
+    private var xCoordinate: Float = 0f
+    private var yCoordinate: Float = 0f
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -83,18 +92,16 @@ class SetOverlayFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        tempDisplayImageView = mActivity.findViewById(R.id.tempImageView)
-
         val displayMetrics = DisplayMetrics()
         mActivity.windowManager.defaultDisplay.getMetrics(displayMetrics)
         screenDensity = displayMetrics.densityDpi
         displayWidth = displayMetrics.widthPixels
         displayHeight = displayMetrics.heightPixels
-
-        mpManager =
-                mActivity.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        mpManager = mActivity.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        captureResultImageView = mActivity.findViewById(R.id.captureResultImageView)
 
         startScreenshotButton.isSelected = false
+
         startScreenshotButton.setOnClickListener {
             if (!Settings.canDrawOverlays(context)) {
                 val intent = Intent(
@@ -120,7 +127,42 @@ class SetOverlayFragment : Fragment() {
                     false -> {
                         startActivityForResult(
                                 mpManager?.createScreenCaptureIntent(),
-                                REQUEST_MEDIA_PROJECTION
+                                REQUEST_MEDIA_PROJECTION_SCREENSHOT
+                        )
+
+                        startService(mContext, "서비스가 실행 중입니다.")
+                    }
+                }
+            }
+        }
+
+        startVideoCaptureButton.isSelected = false
+        startVideoCaptureButton.setOnClickListener {
+            if (!Settings.canDrawOverlays(context)) {
+                val intent = Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + context?.packageName)
+                )
+                startActivityForResult(intent, ACTION_MANAGE_OVERLAY_PERMISSION_REQUEST_CODE)
+            } else {
+
+                when (startVideoCaptureButton.isSelected) {
+                    true -> {
+                        wm?.removeView(overlayView)
+
+                        stopService(mContext)
+                        virtualDisplay?.release()
+
+                        startVideoCaptureButton.isSelected = false
+                        startVideoCaptureButton.setText(R.string.start_video_capture)
+
+                        Toast.makeText(context, "영상 캡처 버튼이 비활성화되었습니다.", Toast.LENGTH_SHORT).show()
+                    }
+
+                    false -> {
+                        startActivityForResult(
+                                mpManager?.createScreenCaptureIntent(),
+                                REQUEST_MEDIA_PROJECTION_VIDEO
                         )
 
                         startService(mContext, "서비스가 실행 중입니다.")
@@ -130,24 +172,7 @@ class SetOverlayFragment : Fragment() {
         }
     }
 
-    private fun checkOverlayPermission() {
-        when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
-                if (!Settings.canDrawOverlays(context)) {
-                    val intent = Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:" + context?.packageName)
-                    )
-                    startActivityForResult(intent, ACTION_MANAGE_OVERLAY_PERMISSION_REQUEST_CODE)
-                }
-            }
-            else -> {
-                mActivity.startService(Intent(mContext, ForegroundService::class.java))
-                Toast.makeText(context, "서비스가 실행되었습니다.", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
+    @SuppressLint("ClickableViewAccessibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
@@ -158,7 +183,7 @@ class SetOverlayFragment : Fragment() {
                 }
             }
 
-            REQUEST_MEDIA_PROJECTION -> {
+            REQUEST_MEDIA_PROJECTION_SCREENSHOT -> {
                 if (resultCode != RESULT_OK) {
                     stopService(mContext)
                     Toast.makeText(mContext, "캡처 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
@@ -168,6 +193,110 @@ class SetOverlayFragment : Fragment() {
                 if (data != null && resultCode == RESULT_OK && !startScreenshotButton.isSelected) {
                     startScreenshotButton.isSelected = true
                     startScreenshotButton.setText(R.string.stop_screenshot)
+
+                    mActivity.setResult(RESULT_OK)
+
+                    setUpMediaProjection(resultCode, data)
+                    Log.d("debug", "Setup Media Projection")
+
+
+                    params = WindowManager.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            0,
+                            0,
+                            if (Build.VERSION.SDK_INT >= 26) {
+                                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                            } else {
+                                @Suppress("DEPRECATION")
+                                WindowManager.LayoutParams.TYPE_SYSTEM_ALERT
+                            },
+                            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                                    WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                            PixelFormat.TRANSLUCENT
+                    ).apply {
+                        gravity = Gravity.NO_GRAVITY
+                    }
+
+                    overlayView = View.inflate(mContext, R.layout.fragment_overlay_button, null)
+                    overlayButton = overlayView.findViewById(R.id.screenshotButton)
+                    overlayButton.setImageResource(R.drawable.ic_twotone_camera)
+
+                    wm = mContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                    wm?.addView(overlayView, params)
+
+                    Toast.makeText(context, "스크린샷 버튼이 활성화되었습니다.", Toast.LENGTH_SHORT).show()
+
+                    overlayButton.setOnClickListener {
+                        GlobalScope.launch(Main) {
+                            delay(80L)
+                            getScreenshot()
+                            overlayView.visibility = View.VISIBLE
+                            wm?.updateViewLayout(overlayView, params)
+                        }
+                        overlayView.visibility = View.GONE
+                        wm?.updateViewLayout(overlayView, params)
+                    }
+
+                    overlayButton.setOnTouchListener(object : View.OnTouchListener {
+                        override fun onTouch(v: View?, event: MotionEvent?): Boolean {
+                            when (event?.action) {
+                                MotionEvent.ACTION_DOWN -> {
+                                    startClickTime = Calendar.getInstance().timeInMillis
+                                    xCoordinate = overlayView.x - event.rawX + params.x
+                                    yCoordinate = overlayView.y - event.rawY + params.y
+                                    Log.d(
+                                            "debug",
+                                            "ACTION_DOWN : : " +
+                                                    "[params] ${params.x}, ${params.y} / " +
+                                                    "[event] ${event.rawX}, ${event.rawY} / " +
+                                                    "[coordinate] $xCoordinate, $yCoordinate"
+                                    )
+                                    return true
+                                }
+
+                                MotionEvent.ACTION_MOVE -> {
+                                    GlobalScope.launch(Main) {
+                                        delay(10L)
+                                        wm?.updateViewLayout(overlayView, params)
+                                        Log.d(
+                                                "debug",
+                                                "ACTION_MOVE : " +
+                                                        "[params] ${params.x}, ${params.y} / " +
+                                                        "[event] ${event.rawX}, ${event.rawY} / " +
+                                                        "[coordinate] $xCoordinate, $yCoordinate"
+                                        )
+                                    }
+                                    params.x = (event.rawX + xCoordinate).toInt()
+                                    params.y = (event.rawY + yCoordinate).toInt()
+                                }
+
+                                MotionEvent.ACTION_UP -> {
+                                    val clickDuration = Calendar.getInstance().timeInMillis - startClickTime
+                                    if (clickDuration < MAX_CLICK_DURATION) {
+                                        overlayButton.performClick()
+                                        Log.d("debug", "ACTION_UP")
+                                    }
+                                }
+                            }
+                            return true
+                        }
+                    })
+                }
+            }
+
+            REQUEST_MEDIA_PROJECTION_VIDEO -> {
+                if (resultCode != RESULT_OK) {
+                    stopService(mContext)
+                    Toast.makeText(mContext, "캡처 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
+                    return
+                }
+
+                if (data != null && resultCode == RESULT_OK && !startVideoCaptureButton.isSelected) {
+
+                    startVideoCaptureButton.isSelected = true
+                    startVideoCaptureButton.setText(R.string.stop_video_capture)
 
                     mActivity.setResult(RESULT_OK)
 
@@ -189,17 +318,21 @@ class SetOverlayFragment : Fragment() {
                                     WindowManager.LayoutParams.FLAG_FULLSCREEN,
                             PixelFormat.TRANSLUCENT
                     ).apply {
-                        gravity = Gravity.TOP
+                        gravity = Gravity.NO_GRAVITY
                     }
 
                     overlayView = View.inflate(mContext, R.layout.fragment_overlay_button, null)
+                    overlayButton = overlayView.findViewById(R.id.screenshotButton)
+                    overlayButton.setImageResource(R.drawable.ic_twotone_videocam)
 
                     wm = mContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
                     wm?.addView(overlayView, params)
 
-                    Toast.makeText(context, "스크린샷 버튼이 활성화되었습니다.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "영상 캡처 버튼이 활성화되었습니다.", Toast.LENGTH_SHORT).show()
 
-                    overlayView.setOnClickListener {
+                    overlayButton.setOnClickListener {
+                        Log.d("debug", "CLICK_OVERLAY_BUTTON")
+
                         GlobalScope.launch(Main) {
                             delay(80L)
                             getScreenshot()
@@ -209,6 +342,51 @@ class SetOverlayFragment : Fragment() {
                         overlayView.visibility = View.GONE
                         wm?.updateViewLayout(overlayView, params)
                     }
+
+                    overlayButton.setOnTouchListener(object : View.OnTouchListener {
+                        override fun onTouch(v: View?, event: MotionEvent?): Boolean {
+                            when (event?.action) {
+                                MotionEvent.ACTION_DOWN -> {
+                                    startClickTime = Calendar.getInstance().timeInMillis
+                                    xCoordinate = overlayView.x - event.rawX + params.x
+                                    yCoordinate = overlayView.y - event.rawY + params.y
+                                    Log.d(
+                                            "debug",
+                                            "ACTION_DOWN : : " +
+                                                    "[params] ${params.x}, ${params.y} / " +
+                                                    "[event] ${event.rawX}, ${event.rawY} / " +
+                                                    "[coordinate] $xCoordinate, $yCoordinate"
+                                    )
+                                    return true
+                                }
+
+                                MotionEvent.ACTION_MOVE -> {
+                                    GlobalScope.launch(Main) {
+                                        delay(10L)
+                                        wm?.updateViewLayout(overlayView, params)
+                                        Log.d(
+                                                "debug",
+                                                "ACTION_MOVE : " +
+                                                        "[params] ${params.x}, ${params.y} / " +
+                                                        "[event] ${event.rawX}, ${event.rawY} / " +
+                                                        "[coordinate] $xCoordinate, $yCoordinate"
+                                        )
+                                    }
+                                    params.x = (event.rawX + xCoordinate).toInt()
+                                    params.y = (event.rawY + yCoordinate).toInt()
+                                }
+
+                                MotionEvent.ACTION_UP -> {
+                                    val clickDuration = Calendar.getInstance().timeInMillis - startClickTime
+                                    if (clickDuration < MAX_CLICK_DURATION) {
+                                        overlayButton.performClick()
+                                        Log.d("debug", "ACTION_UP")
+                                    }
+                                }
+                            }
+                            return true
+                        }
+                    })
                 }
             }
         }
@@ -249,7 +427,7 @@ class SetOverlayFragment : Fragment() {
         bitmap.copyPixelsFromBuffer(buffer)
         image.close()
 
-        tempDisplayImageView?.setImageBitmap(bitmap)
+        captureResultImageView?.setImageBitmap(bitmap)
     }
 
     private fun checkPermissions() {
@@ -264,6 +442,24 @@ class SetOverlayFragment : Fragment() {
         if (rejectedPermissionList.isNotEmpty()) {
             val array = arrayOfNulls<String>(rejectedPermissionList.size)
             requestPermissions(rejectedPermissionList.toArray(array), PERMISSIONS_MULTIPLE_REQUEST)
+        }
+    }
+
+    private fun checkOverlayPermission() {
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
+                if (!Settings.canDrawOverlays(context)) {
+                    val intent = Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + context?.packageName)
+                    )
+                    startActivityForResult(intent, ACTION_MANAGE_OVERLAY_PERMISSION_REQUEST_CODE)
+                }
+            }
+            else -> {
+                mActivity.startService(Intent(mContext, ForegroundService::class.java))
+                Toast.makeText(context, "서비스가 실행되었습니다.", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -283,10 +479,11 @@ class SetOverlayFragment : Fragment() {
         if (wm != null) {
             wm?.removeView(overlayView)
         }
-        stopService(mContext)
 
-        Log.d("debug", "release VirtualDisplay")
+        stopService(mContext)
         virtualDisplay?.release()
+        Log.d("debug", "release VirtualDisplay")
+
         super.onDestroy()
     }
 }

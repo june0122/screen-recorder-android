@@ -2,11 +2,19 @@ package com.june0122.overlay_sample.utils
 
 import android.content.Context
 import android.util.AttributeSet
+import android.util.Log
 import android.view.MotionEvent
 import androidx.appcompat.widget.AppCompatImageButton
+import java.util.*
 
 
 class OverlayImageButton: AppCompatImageButton {
+
+    companion object {
+        const val MAX_CLICK_DURATION = 200
+    }
+
+    private var startClickTime : Long = 0
     private var xCoordinate: Float = 0f
     private var yCoordinate: Float = 0f
     constructor(context: Context) : super(context, null)
@@ -17,6 +25,8 @@ class OverlayImageButton: AppCompatImageButton {
         super.onTouchEvent(event)
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
+                startClickTime = Calendar.getInstance().timeInMillis
+
                 xCoordinate = rootView.x - event.rawX
                 yCoordinate = rootView.y - event.rawY
                 return true
@@ -29,8 +39,10 @@ class OverlayImageButton: AppCompatImageButton {
                     .start()
             }
             MotionEvent.ACTION_UP -> {
-                performClick()
-                return true
+               val clickDuration = Calendar.getInstance().timeInMillis - startClickTime
+                if(clickDuration < MAX_CLICK_DURATION) {
+                    performClick()
+                }
             }
         }
         return false
@@ -40,6 +52,7 @@ class OverlayImageButton: AppCompatImageButton {
     // normal touch events and for when the system calls this using Accessibility
     override fun performClick(): Boolean {
         super.performClick()
+        Log.d("debug", "move")
         doSomething()
         return true
     }
