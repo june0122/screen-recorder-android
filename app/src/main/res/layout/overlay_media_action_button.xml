@@ -8,7 +8,7 @@
     android:layout_height="match_parent">
 
     <com.june0122.overlay_sample.utils.OverlayImageButton
-        android:id="@+id/screenshotButton"
+        android:id="@+id/mediaActionButton"
         android:layout_width="64dp"
         android:layout_height="64dp"
         android:background="@drawable/circular_button"
