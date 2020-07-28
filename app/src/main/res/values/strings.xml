@@ -1,10 +1,19 @@
 <resources>
     <string name="app_name">Overlay-Sample</string>
+
     <string name="active_overlay">Activate Overlay</string>
     <string name="deactivate_overlay">Deactivate Overlay</string>
+
     <string name="screenshot">Screenshot</string>
+
     <string name="start_screenshot">Start Screenshot</string>
     <string name="stop_screenshot">Stop Screenshot</string>
     <string name="start_video_capture">Start Video Capture</string>
     <string name="stop_video_capture">Stop Video Capture</string>
+
+    <string name="activate_screenshot">스크린샷 버튼이 활성화되었습니다.</string>
+    <string name="activate_screen_record">스크린 녹화 버튼이 활성화되었습니다.</string>
+    <string name="deactivate_screenshot">스크린샷 버튼이 비활성화되었습니다.</string>
+    <string name="deactivate_screen_record">스크린 녹화 버튼이 비활성화되었습니다.</string>
+
 </resources>
