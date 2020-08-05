@@ -1,0 +1,112 @@
+package com.june0122.overlay_sample.service
+
+import android.annotation.SuppressLint
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.graphics.BitmapFactory
+import android.os.Build
+import android.os.IBinder
+import androidx.annotation.RequiresApi
+import androidx.media.app.NotificationCompat.*
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import com.june0122.overlay_sample.R
+import com.june0122.overlay_sample.receiver.MyBroadcastReceiver
+import com.june0122.overlay_sample.ui.activity.MainActivity
+import com.june0122.overlay_sample.utils.PI_CODE_DELETE_SCREENSHOT_SERVICE
+import com.june0122.overlay_sample.utils.SCREENSHOT_SERVICE_ID
+
+class ScreenshotService : Service() {
+    private val serviceId = "Foreground Service Example"
+
+    private val context: Context
+        get() = this
+
+    companion object {
+        fun startService(context: Context, message: String) {
+            val startIntent = Intent(context, ScreenshotService::class.java)
+            startIntent.putExtra("inputExtra", message)
+            ContextCompat.startForegroundService(context, startIntent)
+        }
+
+        fun stopService(context: Context) {
+            val stopIntent = Intent(context, ScreenshotService::class.java)
+            context.stopService(stopIntent)
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        setScreenshotNotification(intent)
+
+        return START_STICKY
+    }
+
+    private fun setScreenshotNotification(intent: Intent?) {
+        val contentTitle = "SCREENSHOT"
+        val contentText = intent?.getStringExtra("inputExtra")
+        val notificationIntent = Intent(this, MainActivity::class.java)
+        val pendingIntent =
+                PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT)
+
+        val closeIntent = PendingIntent.getBroadcast(
+                context,
+                PI_CODE_DELETE_SCREENSHOT_SERVICE,
+                Intent(context, MyBroadcastReceiver::class.java)
+                        .apply { action = MyBroadcastReceiver.ACTION_DELETE_SCREENSHOT_SERVICE },
+                PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val largeIconBitmap = BitmapFactory.decodeResource(resources, R.drawable.portrait_lux)
+
+        val screenshotNotification = NotificationCompat.Builder(this, serviceId)
+                .setSmallIcon(R.drawable.ic_noti_screenshot)
+                .setContentTitle(contentTitle)
+                .setContentText(contentText)
+                .setContentIntent(pendingIntent)
+                .setDeleteIntent(closeIntent)
+                .addAction(
+                        NotificationCompat.Action(
+                                R.drawable.ic_noti_close,
+                                getString(R.string.close),
+                                closeIntent
+                        )
+                )
+                .setStyle(MediaStyle().setShowActionsInCompactView(0))
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true)
+                .setLargeIcon(largeIconBitmap)
+                .build()
+
+        createNotificationChannel()
+        startForeground(SCREENSHOT_SERVICE_ID, screenshotNotification)
+    }
+
+    override fun onBind(intent: Intent?): IBinder? {
+        return null
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val serviceChannel = NotificationChannel(serviceId, "Foreground Service Channel",
+                    NotificationManager.IMPORTANCE_DEFAULT)
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.createNotificationChannel(serviceChannel)
+        }
+    }
+
+    private fun clearExistingNotifications(notificationId: Int) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(notificationId)
+    }
+
+    @SuppressLint("InflateParams", "ClickableViewAccessibility")
+    @RequiresApi(Build.VERSION_CODES.O)
+    override fun onCreate() {
+        super.onCreate()
+
+    }
+}
