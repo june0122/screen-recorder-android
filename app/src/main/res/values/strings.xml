@@ -16,4 +16,8 @@
     <string name="deactivate_screenshot">스크린샷 버튼이 비활성화되었습니다.</string>
     <string name="deactivate_screen_record">스크린 녹화 버튼이 비활성화되었습니다.</string>
 
+    <string name="close">Close</string>
+    <string name="stop">Stop</string>
+    <string name="record">Record</string>
+
 </resources>
