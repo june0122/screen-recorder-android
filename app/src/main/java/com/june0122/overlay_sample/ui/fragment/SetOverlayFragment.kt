@@ -13,28 +13,39 @@ import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.Image
 import android.media.ImageReader
+import android.media.MediaRecorder
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
+import android.util.SparseIntArray
 import android.view.*
+import android.view.animation.AccelerateInterpolator
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.TranslateAnimation
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.Toast
+import android.widget.VideoView
+import androidx.annotation.RequiresApi
+import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.june0122.overlay_sample.R
-import com.june0122.overlay_sample.service.ForegroundService
-import com.june0122.overlay_sample.service.ForegroundService.Companion.startService
-import com.june0122.overlay_sample.service.ForegroundService.Companion.stopService
+import com.june0122.overlay_sample.service.ScreenRecordService
+import com.june0122.overlay_sample.service.ScreenshotService
 import com.june0122.overlay_sample.utils.OverlayImageButton
 import kotlinx.android.synthetic.main.fragment_set_overlay.*
-import kotlinx.coroutines.*
 import kotlinx.coroutines.Dispatchers.Main
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.util.*
 import kotlin.collections.ArrayList
@@ -45,6 +56,17 @@ class SetOverlayFragment : Fragment() {
         const val PERMISSIONS_MULTIPLE_REQUEST = 2
         const val REQUEST_MEDIA_PROJECTION_SCREENSHOT = 1001
         const val REQUEST_MEDIA_PROJECTION_VIDEO = 1002
+
+        const val DISPLAY_WIDTH = 720
+        const val DISPLAY_HEIGHT = 1440
+        private val ORIENTATIONS = SparseIntArray()
+
+        fun createOrientations() {
+            ORIENTATIONS.append(Surface.ROTATION_0, 90)
+            ORIENTATIONS.append(Surface.ROTATION_90, 0)
+            ORIENTATIONS.append(Surface.ROTATION_180, 270)
+            ORIENTATIONS.append(Surface.ROTATION_270, 180)
+        }
     }
 
     private val requiredPermissionList = listOf(
@@ -55,14 +77,18 @@ class SetOverlayFragment : Fragment() {
 
     private lateinit var mContext: Context
     private lateinit var mActivity: Activity
+    private lateinit var rootLayout: ConstraintLayout
     private lateinit var overlayView: View
     private lateinit var overlayButton: OverlayImageButton
+    private lateinit var videoView: VideoView
     private lateinit var params: WindowManager.LayoutParams
 
     private var screenDensity: Int = 0
     private var displayWidth: Int = 0
     private var displayHeight: Int = 0
-    private var mp: MediaProjection? = null
+    private var mediaProjection: MediaProjection? = null
+    private var mediaRecorder: MediaRecorder? = null
+    private var mediaProjectionCallback: MediaProjection.Callback? = null
     private var mpManager: MediaProjectionManager? = null
     private var imageReader: ImageReader? = null
     private var virtualDisplay: VirtualDisplay? = null
@@ -71,6 +97,9 @@ class SetOverlayFragment : Fragment() {
     private var startClickTime: Long = 0
     private var xCoordinate: Float = 0f
     private var yCoordinate: Float = 0f
+    private var videoUri = ""
+    private var isRecording = false
+//    private var permissionGranted = false
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -98,6 +127,10 @@ class SetOverlayFragment : Fragment() {
         displayHeight = displayMetrics.heightPixels
         mpManager = mActivity.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         captureResultImageView = mActivity.findViewById(R.id.captureResultImageView)
+
+        mediaRecorder = MediaRecorder()
+        rootLayout = mActivity.findViewById(R.id.rootLayout)
+        videoView = mActivity.findViewById(R.id.videoView)
 
         params = WindowManager
                 .LayoutParams(
@@ -137,6 +170,9 @@ class SetOverlayFragment : Fragment() {
     @SuppressLint("ClickableViewAccessibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+
+        mediaProjectionCallback = MediaProjectionCallback()
+        mediaProjection?.registerCallback(mediaProjectionCallback, null)
 
         when (requestCode) {
             ACTION_MANAGE_OVERLAY_PERMISSION_REQUEST_CODE -> {
@@ -187,18 +223,33 @@ class SetOverlayFragment : Fragment() {
             } else {
                 when (activatedButton.isSelected) {
                     true -> {
+                        when (requestCode) {
+                            REQUEST_MEDIA_PROJECTION_SCREENSHOT -> ScreenshotService.stopService(mContext)
+                            REQUEST_MEDIA_PROJECTION_VIDEO -> {
+                                ScreenRecordService.stopService(mContext)
+                                stopRecordScreen()
+                            }
+                        }
+
                         wm?.removeView(overlayView)
-                        stopService(mContext)
                         virtualDisplay?.release()
                         activatedButton.isSelected = false
                         activatedButton.setText(toggleOnText)
-
                         Toast.makeText(context, deactivateMsg, Toast.LENGTH_SHORT).show()
                     }
 
                     false -> {
                         startActivityForResult(mpManager?.createScreenCaptureIntent(), requestCode)
-                        startService(mContext, "서비스가 실행 중입니다.")
+
+                        if (activatedButton.isSelected) {
+                            when (requestCode) {
+                                REQUEST_MEDIA_PROJECTION_SCREENSHOT ->
+                                    ScreenshotService.startService(mContext, "서비스가 실행 중입니다.")
+                                REQUEST_MEDIA_PROJECTION_VIDEO ->
+                                    ScreenRecordService.startService(mContext, "서비스가 실행 중입니다.")
+                            }
+                        }
+
                     }
                 }
             }
@@ -213,7 +264,10 @@ class SetOverlayFragment : Fragment() {
             buttonImage: Int, toggleOffText: Int, activateMsg: Int
     ) {
         if (resultCode != RESULT_OK) {
-            stopService(mContext)
+            when (activatedButton) {
+                startScreenshotButton -> ScreenshotService.stopService(mContext)
+                startVideoCaptureButton -> ScreenRecordService.stopService(mContext)
+            }
             Toast.makeText(mContext, "캡처 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
 
             return
@@ -222,10 +276,19 @@ class SetOverlayFragment : Fragment() {
         if (data != null && resultCode == RESULT_OK && !activatedButton.isSelected) {
             activatedButton.isSelected = true
             activatedButton.setText(toggleOffText)
-
             mActivity.setResult(RESULT_OK)
-            setUpMediaProjection(resultCode, data)
-            Log.d("debug", "Setup Media Projection")
+
+            when (activatedButton) {
+                startScreenshotButton -> ScreenshotService.startService(mContext, "서비스가 실행 중입니다.")
+                startVideoCaptureButton -> ScreenRecordService.startService(mContext, "서비스가 실행 중입니다.")
+            }
+
+            GlobalScope.launch(Main) {
+                delay(80L)
+                setUpMediaProjection(mediaAction, resultCode, data)
+            }
+
+//            setUpMediaProjection(mediaAction, resultCode, data)
 
             overlayView = View.inflate(mContext, R.layout.overlay_media_action_button, null)
             overlayButton = overlayView.findViewById(R.id.mediaActionButton)
@@ -240,15 +303,30 @@ class SetOverlayFragment : Fragment() {
     private fun overlayButtonListener(action: () -> Unit) {
         overlayButton.apply {
             setOnClickListener {
-                Log.d("debug", "CLICK_OVERLAY_BUTTON")
-                GlobalScope.launch(Main) {
-                    delay(80L)
-                    action()
-                    overlayView.visibility = View.VISIBLE
-                    wm?.updateViewLayout(overlayView, params)
+                when (action) {
+                    ::getScreenshot -> {
+                        GlobalScope.launch(Main) {
+                            delay(80L)
+                            action()
+                            overlayView.visibility = View.VISIBLE
+                            wm?.updateViewLayout(overlayView, params)
+                        }
+                        overlayView.visibility = View.GONE
+                        wm?.updateViewLayout(overlayView, params)
+                    }
+
+                    ::getScreenRecord -> {
+                        GlobalScope.launch(Main) {
+                            delay(80L)
+                            action()
+
+                            overlayView.visibility = View.VISIBLE
+                            wm?.updateViewLayout(overlayView, params)
+                        }
+                        overlayView.visibility = View.GONE
+                        wm?.updateViewLayout(overlayView, params)
+                    }
                 }
-                overlayView.visibility = View.GONE
-                wm?.updateViewLayout(overlayView, params)
             }
 
             setOnTouchListener(object : View.OnTouchListener {
@@ -258,9 +336,7 @@ class SetOverlayFragment : Fragment() {
                             startClickTime = Calendar.getInstance().timeInMillis
                             xCoordinate = overlayView.x - event.rawX + params.x
                             yCoordinate = overlayView.y - event.rawY + params.y
-
-                            touchEventLogging(event)
-
+//                            touchEventLogging(event)
                             return true
                         }
 
@@ -268,9 +344,7 @@ class SetOverlayFragment : Fragment() {
                             GlobalScope.launch(Main) {
                                 delay(10L)
                                 wm?.updateViewLayout(overlayView, params)
-
-                                touchEventLogging(event)
-
+//                                touchEventLogging(event)
                             }
                             params.x = (event.rawX + xCoordinate).toInt()
                             params.y = (event.rawY + yCoordinate).toInt()
@@ -290,36 +364,52 @@ class SetOverlayFragment : Fragment() {
         }
     }
 
-    private fun touchEventLogging(event: MotionEvent) {
-        Log.d(
-                "debug",
-                "ACTION_MOVE : " +
-                        "[params] ${params.x}, ${params.y} / " +
-                        "[event] ${event.rawX}, ${event.rawY} / " +
-                        "[coordinate] $xCoordinate, $yCoordinate"
-        )
+//    private fun touchEventLogging(event: MotionEvent) {
+//        Log.d(
+//                "debug",
+//                "ACTION_MOVE : " +
+//                        "[params] ${params.x}, ${params.y} / " +
+//                        "[event] ${event.rawX}, ${event.rawY} / " +
+//                        "[coordinate] $xCoordinate, $yCoordinate"
+//        )
+//    }
+
+    private fun setUpMediaProjection(mediaAction: () -> Unit, code: Int, intent: Intent) {
+        mediaProjection = mpManager?.getMediaProjection(code, intent)
+        Log.d("debug", "Setup Media Projection")
+
+        setUpVirtualDisplay(mediaAction)
     }
 
-    private fun setUpMediaProjection(code: Int, intent: Intent) {
-        mp = mpManager?.getMediaProjection(code, intent)
-        setUpVirtualDisplay()
-    }
+    private fun setUpVirtualDisplay(mediaAction: () -> Unit) {
+        when (mediaAction) {
+            ::getScreenshot -> {
+                imageReader = ImageReader.newInstance(
+                        displayWidth, displayHeight, PixelFormat.RGBA_8888, 2
+                )
 
-    private fun setUpVirtualDisplay() {
-        imageReader = ImageReader.newInstance(
-                displayWidth, displayHeight, PixelFormat.RGBA_8888, 2
-        )
+                virtualDisplay = mediaProjection
+                        ?.createVirtualDisplay(
+                                "ScreenCapture",
+                                displayWidth,
+                                displayHeight,
+                                screenDensity,
+                                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                                imageReader?.surface,
+                                null,
+                                null
+                        )
+            }
 
-        virtualDisplay = mp?.createVirtualDisplay(
-                "ScreenCapture",
-                displayWidth, displayHeight, screenDensity,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader?.surface, null, null
-        )
+            ::getScreenRecord -> {
+
+
+            }
+        }
     }
 
     private fun getScreenshot() {
-        Log.d("debug", "getScreenshot")
+        Log.d("debug", "Screenshot")
 
         val image: Image = imageReader?.acquireLatestImage() ?: return
         val planes: Array<Image.Plane> = image.planes
@@ -339,8 +429,10 @@ class SetOverlayFragment : Fragment() {
     }
 
     private fun getScreenRecord() {
-        Toast.makeText(context, "getScreenRecord()", Toast.LENGTH_SHORT).show()
-        // Write code to screen recording
+        Log.d("debug", "Screen Record")
+        Toast.makeText(context, "getScreenRecord", Toast.LENGTH_SHORT).show()
+
+        toggleScreenShare(overlayButton)
     }
 
     private fun checkPermissions() {
@@ -369,10 +461,10 @@ class SetOverlayFragment : Fragment() {
                     startActivityForResult(intent, ACTION_MANAGE_OVERLAY_PERMISSION_REQUEST_CODE)
                 }
             }
-            else -> {
-                mActivity.startService(Intent(mContext, ForegroundService::class.java))
-                Toast.makeText(context, "서비스가 실행되었습니다.", Toast.LENGTH_SHORT).show()
-            }
+//            else -> {
+//                mActivity.startService(Intent(mContext, ForegroundService::class.java))
+//                Toast.makeText(context, "서비스가 실행되었습니다.", Toast.LENGTH_SHORT).show()
+//            }
         }
     }
 
@@ -393,10 +485,156 @@ class SetOverlayFragment : Fragment() {
             wm?.removeView(overlayView)
         }
 
-        stopService(mContext)
+        ScreenshotService.stopService(mContext)
+        ScreenRecordService.stopService(mContext)
         virtualDisplay?.release()
+
         Log.d("debug", "release VirtualDisplay")
 
         super.onDestroy()
+    }
+
+    private fun toggleScreenShare(view: View) {
+        if (!isRecording) {
+            initRecorder()
+            recordScreen()
+            isRecording = true
+        } else {
+
+            try {
+                mediaRecorder?.stop()
+            } catch (stopException: RuntimeException) {
+                stopException.printStackTrace()
+            }
+            mediaRecorder?.reset()
+            isRecording = false
+
+            videoView.apply {
+                addVideoViewAnimation(this)
+                visibility = View.VISIBLE
+                setVideoURI(Uri.parse(videoUri))
+                start()
+
+                setOnCompletionListener {
+                    videoView.stopPlayback()
+                    videoView.visibility = View.GONE
+                }
+            }
+        }
+    }
+
+    private fun addVideoViewAnimation(videoView: View) {
+        videoView.tag = videoView.visibility
+        videoView.viewTreeObserver.addOnGlobalLayoutListener {
+            val newVisibility = videoView.visibility
+            if (videoView.tag != newVisibility) {
+                videoView.tag = newVisibility
+                val animation: TranslateAnimation
+
+                if (newVisibility == View.VISIBLE) {
+                    animation = TranslateAnimation(0f, 0f, -videoView.height.toFloat(), 0f)
+                    animation.interpolator = DecelerateInterpolator()
+                } else {
+                    animation = TranslateAnimation(0f, 0f, 0f, -videoView.height.toFloat())
+                    animation.interpolator = AccelerateInterpolator()
+                }
+
+                animation.duration = 350
+                videoView.startAnimation(animation)
+            }
+        }
+    }
+
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    private fun recordScreen() {
+//        if (mediaProjection == null) {
+//            startActivityForResult(mpManager?.createScreenCaptureIntent(), REQUEST_CODE)
+//            return
+//        }
+
+        virtualDisplay = createVirtualDisplay()
+        mediaRecorder?.start()
+    }
+
+    private fun createVirtualDisplay(): VirtualDisplay? {
+
+        return mediaProjection?.createVirtualDisplay(
+                "MainActivity",
+                DISPLAY_WIDTH,
+                DISPLAY_HEIGHT,
+                screenDensity,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                mediaRecorder?.surface,
+                null,
+                null
+        )
+    }
+
+    @SuppressLint("SimpleDateFormat")
+    private fun initRecorder() {
+        videoUri = ""
+        videoUri = mActivity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                .toString() + java.lang.StringBuilder("/AHAM_")
+                .append(java.text.SimpleDateFormat("dd-MM-yyyy-hh_mm_ss")
+                        .format(Date())).append(".mp4").toString()
+
+        Log.d("debug", "getFilePath: $videoUri")
+
+        try {
+            mediaRecorder?.apply {
+                createOrientations()
+
+                val rotation = mActivity.windowManager.defaultDisplay.rotation
+                val orientation = ORIENTATIONS.get(rotation + 90)
+
+                setAudioSource(MediaRecorder.AudioSource.DEFAULT)
+                setVideoSource(MediaRecorder.VideoSource.SURFACE)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+                setOutputFile(videoUri)
+                setVideoSize(DISPLAY_WIDTH, DISPLAY_HEIGHT)
+                setVideoEncodingBitRate(6000 * 1000)
+                setAudioSamplingRate(44100)
+                setAudioEncodingBitRate(128 * 1000)
+                setVideoFrameRate(30)
+                setOrientationHint(orientation)
+                try {
+                    prepare()
+                } catch (stopException: RuntimeException) {
+                    stopException.printStackTrace()
+                }
+            }
+        } catch (e: IOException) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun stopRecordScreen() {
+        if (virtualDisplay == null)
+            return
+
+        virtualDisplay?.release()
+        destroyMediaProjection()
+    }
+
+    private fun destroyMediaProjection() {
+        mediaProjection?.unregisterCallback(mediaProjectionCallback)
+        mediaProjection?.stop()
+        mediaProjection = null
+    }
+
+    inner class MediaProjectionCallback : MediaProjection.Callback() {
+        override fun onStop() {
+            if (startVideoCaptureButton.isSelected) {
+                startVideoCaptureButton.isSelected = false
+                mediaRecorder?.stop()
+                mediaRecorder?.reset()
+            }
+            mediaProjection = null
+            stopRecordScreen()
+            super.onStop()
+        }
     }
 }
