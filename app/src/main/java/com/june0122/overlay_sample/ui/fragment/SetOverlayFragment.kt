@@ -58,7 +58,7 @@ class SetOverlayFragment : Fragment() {
         const val REQUEST_MEDIA_PROJECTION_VIDEO = 1002
 
         const val DISPLAY_WIDTH = 720
-        const val DISPLAY_HEIGHT = 1440
+        const val DISPLAY_HEIGHT = 1600
         private val ORIENTATIONS = SparseIntArray()
 
         fun createOrientations() {
@@ -80,7 +80,8 @@ class SetOverlayFragment : Fragment() {
     private lateinit var rootLayout: ConstraintLayout
     private lateinit var overlayView: View
     private lateinit var overlayButton: OverlayImageButton
-    private lateinit var videoView: VideoView
+    private lateinit var screenRecordVideoView: VideoView
+    private lateinit var screenshotImageView: ImageView
     private lateinit var params: WindowManager.LayoutParams
 
     private var screenDensity: Int = 0
@@ -92,7 +93,6 @@ class SetOverlayFragment : Fragment() {
     private var mpManager: MediaProjectionManager? = null
     private var imageReader: ImageReader? = null
     private var virtualDisplay: VirtualDisplay? = null
-    private var captureResultImageView: ImageView? = null
     private var wm: WindowManager? = null
     private var startClickTime: Long = 0
     private var xCoordinate: Float = 0f
@@ -126,11 +126,11 @@ class SetOverlayFragment : Fragment() {
         displayWidth = displayMetrics.widthPixels
         displayHeight = displayMetrics.heightPixels
         mpManager = mActivity.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        captureResultImageView = mActivity.findViewById(R.id.captureResultImageView)
+        screenshotImageView = mActivity.findViewById(R.id.screenshotImageView)
 
         mediaRecorder = MediaRecorder()
         rootLayout = mActivity.findViewById(R.id.rootLayout)
-        videoView = mActivity.findViewById(R.id.videoView)
+        screenRecordVideoView = mActivity.findViewById(R.id.screenRecordVideoView)
 
         params = WindowManager
                 .LayoutParams(
@@ -425,7 +425,14 @@ class SetOverlayFragment : Fragment() {
         bitmap.copyPixelsFromBuffer(buffer)
         image.close()
 
-        captureResultImageView?.setImageBitmap(bitmap)
+
+        GlobalScope.launch(Main) {
+            delay(2500)
+            screenshotImageView.visibility = View.GONE
+        }
+        addTranslateAnimation(screenshotImageView)
+        screenshotImageView.visibility = View.VISIBLE
+        screenshotImageView.setImageBitmap(bitmap)
     }
 
     private fun getScreenRecord() {
@@ -494,6 +501,7 @@ class SetOverlayFragment : Fragment() {
         super.onDestroy()
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun toggleScreenShare(view: View) {
         if (!isRecording) {
             initRecorder()
@@ -509,38 +517,39 @@ class SetOverlayFragment : Fragment() {
             mediaRecorder?.reset()
             isRecording = false
 
-            videoView.apply {
-                addVideoViewAnimation(this)
+            screenRecordVideoView.apply {
+                addTranslateAnimation(this)
                 visibility = View.VISIBLE
                 setVideoURI(Uri.parse(videoUri))
                 start()
 
                 setOnCompletionListener {
-                    videoView.stopPlayback()
-                    videoView.visibility = View.GONE
+                    screenRecordVideoView.stopPlayback()
+                    screenRecordVideoView.visibility = View.GONE
                 }
             }
         }
     }
 
-    private fun addVideoViewAnimation(videoView: View) {
-        videoView.tag = videoView.visibility
-        videoView.viewTreeObserver.addOnGlobalLayoutListener {
-            val newVisibility = videoView.visibility
-            if (videoView.tag != newVisibility) {
-                videoView.tag = newVisibility
+    private fun addTranslateAnimation(v: View) {
+        v.tag = v.visibility
+        v.viewTreeObserver.addOnGlobalLayoutListener {
+            val newVisibility = v.visibility
+            if (v.tag != newVisibility) {
+                v.tag = newVisibility
                 val animation: TranslateAnimation
 
                 if (newVisibility == View.VISIBLE) {
-                    animation = TranslateAnimation(0f, 0f, -videoView.height.toFloat(), 0f)
+                    animation = TranslateAnimation(0f, 0f, -v.height.toFloat(), 0f)
                     animation.interpolator = DecelerateInterpolator()
                 } else {
-                    animation = TranslateAnimation(0f, 0f, 0f, -videoView.height.toFloat())
+                    Log.d("Animation", "OK")
+                    animation = TranslateAnimation(0f, 0f, 0f, -v.height.toFloat())
                     animation.interpolator = AccelerateInterpolator()
                 }
 
                 animation.duration = 350
-                videoView.startAnimation(animation)
+                v.startAnimation(animation)
             }
         }
     }
