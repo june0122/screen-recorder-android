@@ -11,6 +11,7 @@ import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.media.CamcorderProfile
 import android.media.Image
 import android.media.ImageReader
 import android.media.MediaRecorder
@@ -67,6 +68,10 @@ class SetOverlayFragment : Fragment() {
             ORIENTATIONS.append(Surface.ROTATION_180, 270)
             ORIENTATIONS.append(Surface.ROTATION_270, 180)
         }
+
+        private val camcorderProfile: CamcorderProfile = CamcorderProfile.get(CamcorderProfile.QUALITY_HIGH)
+        private val cameraWidth = camcorderProfile.videoFrameWidth
+        private val cameraHeight = camcorderProfile.videoFrameHeight
     }
 
     private val requiredPermissionList = listOf(
@@ -87,6 +92,7 @@ class SetOverlayFragment : Fragment() {
     private var screenDensity: Int = 0
     private var displayWidth: Int = 0
     private var displayHeight: Int = 0
+    private var displayRatio: Float = 0f
     private var mediaProjection: MediaProjection? = null
     private var mediaRecorder: MediaRecorder? = null
     private var mediaProjectionCallback: MediaProjection.Callback? = null
@@ -121,10 +127,11 @@ class SetOverlayFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         val displayMetrics = DisplayMetrics()
-        mActivity.windowManager.defaultDisplay.getMetrics(displayMetrics)
+        mActivity.windowManager.defaultDisplay.getRealMetrics(displayMetrics)
         screenDensity = displayMetrics.densityDpi
         displayWidth = displayMetrics.widthPixels
         displayHeight = displayMetrics.heightPixels
+        displayRatio = displayHeight.toFloat() / displayWidth.toFloat()
         mpManager = mActivity.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         screenshotImageView = mActivity.findViewById(R.id.screenshotImageView)
 
@@ -390,7 +397,7 @@ class SetOverlayFragment : Fragment() {
 
                 virtualDisplay = mediaProjection
                         ?.createVirtualDisplay(
-                                "ScreenCapture",
+                                "Screenshot",
                                 displayWidth,
                                 displayHeight,
                                 screenDensity,
@@ -567,11 +574,10 @@ class SetOverlayFragment : Fragment() {
     }
 
     private fun createVirtualDisplay(): VirtualDisplay? {
-
         return mediaProjection?.createVirtualDisplay(
-                "MainActivity",
-                DISPLAY_WIDTH,
-                DISPLAY_HEIGHT,
+                "ScreenRecord",
+                displayWidth,
+                displayHeight,
                 screenDensity,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 mediaRecorder?.surface,
@@ -600,14 +606,26 @@ class SetOverlayFragment : Fragment() {
                 setAudioSource(MediaRecorder.AudioSource.DEFAULT)
                 setVideoSource(MediaRecorder.VideoSource.SURFACE)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setVideoFrameRate(60)
+
+                Log.d("cameraSize", "$cameraHeight | $cameraWidth")
+                Log.d("ratioSize", "$cameraHeight | ${(cameraHeight * displayRatio).toInt()}")
+                Log.d("displaySize", "$displayWidth | $displayHeight")
+                Log.d("displayRatio", "$displayRatio")
+
+                if (cameraHeight < displayWidth) {
+                    Log.d("setVideoSize", "videoFrameSize : $cameraHeight | $cameraWidth, displaySize : $displayWidth | $displayHeight")
+                    setVideoSize(displayWidth / 2, displayHeight / 2)
+                } else {
+                    setVideoSize(displayWidth, displayHeight)
+                }
+
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                 setVideoEncoder(MediaRecorder.VideoEncoder.H264)
                 setOutputFile(videoUri)
-                setVideoSize(DISPLAY_WIDTH, DISPLAY_HEIGHT)
                 setVideoEncodingBitRate(6000 * 1000)
                 setAudioSamplingRate(44100)
                 setAudioEncodingBitRate(128 * 1000)
-                setVideoFrameRate(30)
                 setOrientationHint(orientation)
                 try {
                     prepare()
