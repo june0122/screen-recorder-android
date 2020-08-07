@@ -9,9 +9,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
-import android.media.CamcorderProfile
 import android.media.Image
 import android.media.ImageReader
 import android.media.MediaRecorder
@@ -33,6 +33,7 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.Toast
 import android.widget.VideoView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
@@ -40,7 +41,7 @@ import androidx.fragment.app.Fragment
 import com.june0122.overlay_sample.R
 import com.june0122.overlay_sample.service.ScreenRecordService
 import com.june0122.overlay_sample.service.ScreenshotService
-import com.june0122.overlay_sample.utils.OverlayImageButton
+import com.june0122.overlay_sample.utils.*
 import kotlinx.android.synthetic.main.fragment_set_overlay.*
 import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.GlobalScope
@@ -53,13 +54,10 @@ import kotlin.collections.ArrayList
 
 class SetOverlayFragment : Fragment() {
     companion object {
-        const val ACTION_MANAGE_OVERLAY_PERMISSION_REQUEST_CODE = 1
-        const val PERMISSIONS_MULTIPLE_REQUEST = 2
+        const val REQUEST_OVERLAY_PERMISSION = 1
         const val REQUEST_MEDIA_PROJECTION_SCREENSHOT = 1001
         const val REQUEST_MEDIA_PROJECTION_VIDEO = 1002
 
-        const val DISPLAY_WIDTH = 720
-        const val DISPLAY_HEIGHT = 1600
         private val ORIENTATIONS = SparseIntArray()
 
         fun createOrientations() {
@@ -68,10 +66,6 @@ class SetOverlayFragment : Fragment() {
             ORIENTATIONS.append(Surface.ROTATION_180, 270)
             ORIENTATIONS.append(Surface.ROTATION_270, 180)
         }
-
-        private val camcorderProfile: CamcorderProfile = CamcorderProfile.get(CamcorderProfile.QUALITY_HIGH)
-        private val cameraWidth = camcorderProfile.videoFrameWidth
-        private val cameraHeight = camcorderProfile.videoFrameHeight
     }
 
     private val requiredPermissionList = listOf(
@@ -88,6 +82,7 @@ class SetOverlayFragment : Fragment() {
     private lateinit var screenRecordVideoView: VideoView
     private lateinit var screenshotImageView: ImageView
     private lateinit var params: WindowManager.LayoutParams
+    private lateinit var realDisplaySize: Point
 
     private var screenDensity: Int = 0
     private var displayWidth: Int = 0
@@ -105,18 +100,11 @@ class SetOverlayFragment : Fragment() {
     private var yCoordinate: Float = 0f
     private var videoUri = ""
     private var isRecording = false
-//    private var permissionGranted = false
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
         mActivity = context as Activity
         mContext = context
-    }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        checkOverlayPermission()
-        checkPermissions()
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
@@ -126,11 +114,15 @@ class SetOverlayFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        checkPermissions()
+        checkOverlayPermission()
+
         val displayMetrics = DisplayMetrics()
         mActivity.windowManager.defaultDisplay.getRealMetrics(displayMetrics)
         screenDensity = displayMetrics.densityDpi
-        displayWidth = displayMetrics.widthPixels
-        displayHeight = displayMetrics.heightPixels
+        realDisplaySize = getScreenSize(mContext)
+        displayWidth = realDisplaySize.x
+        displayHeight = realDisplaySize.y
         displayRatio = displayHeight.toFloat() / displayWidth.toFloat()
         mpManager = mActivity.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         screenshotImageView = mActivity.findViewById(R.id.screenshotImageView)
@@ -182,7 +174,7 @@ class SetOverlayFragment : Fragment() {
         mediaProjection?.registerCallback(mediaProjectionCallback, null)
 
         when (requestCode) {
-            ACTION_MANAGE_OVERLAY_PERMISSION_REQUEST_CODE -> {
+            REQUEST_OVERLAY_PERMISSION -> {
                 if (!Settings.canDrawOverlays(mContext)) {
                     Toast.makeText(mContext, "오버레이 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
                 }
@@ -226,7 +218,7 @@ class SetOverlayFragment : Fragment() {
                         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:" + context?.packageName)
                 )
-                startActivityForResult(intent, ACTION_MANAGE_OVERLAY_PERMISSION_REQUEST_CODE)
+                startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION)
             } else {
                 when (activatedButton.isSelected) {
                     true -> {
@@ -460,7 +452,7 @@ class SetOverlayFragment : Fragment() {
 
         if (rejectedPermissionList.isNotEmpty()) {
             val array = arrayOfNulls<String>(rejectedPermissionList.size)
-            requestPermissions(rejectedPermissionList.toArray(array), PERMISSIONS_MULTIPLE_REQUEST)
+            requestMultiplePermissions.launch(rejectedPermissionList.toArray(array))
         }
     }
 
@@ -472,25 +464,13 @@ class SetOverlayFragment : Fragment() {
                             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                             Uri.parse("package:" + context?.packageName)
                     )
-                    startActivityForResult(intent, ACTION_MANAGE_OVERLAY_PERMISSION_REQUEST_CODE)
+                    startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION)
                 }
             }
 //            else -> {
 //                mActivity.startService(Intent(mContext, ForegroundService::class.java))
 //                Toast.makeText(context, "서비스가 실행되었습니다.", Toast.LENGTH_SHORT).show()
 //            }
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-
-        if (requestCode == PERMISSIONS_MULTIPLE_REQUEST && grantResults.isNotEmpty()) {
-            for ((i, permission) in permissions.withIndex()) {
-                if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
-                    Toast.makeText(mContext, "$permission 거부되었습니다.", Toast.LENGTH_SHORT).show()
-                }
-            }
         }
     }
 
@@ -607,25 +587,13 @@ class SetOverlayFragment : Fragment() {
                 setVideoSource(MediaRecorder.VideoSource.SURFACE)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setVideoFrameRate(60)
-
-                Log.d("cameraSize", "$cameraHeight | $cameraWidth")
-                Log.d("ratioSize", "$cameraHeight | ${(cameraHeight * displayRatio).toInt()}")
-                Log.d("displaySize", "$displayWidth | $displayHeight")
-                Log.d("displayRatio", "$displayRatio")
-
-                if (cameraHeight < displayWidth) {
-                    Log.d("setVideoSize", "videoFrameSize : $cameraHeight | $cameraWidth, displaySize : $displayWidth | $displayHeight")
-                    setVideoSize(displayWidth / 2, displayHeight / 2)
-                } else {
-                    setVideoSize(displayWidth, displayHeight)
-                }
-
+                setVideoSize(displayWidth, displayHeight)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                 setVideoEncoder(MediaRecorder.VideoEncoder.H264)
                 setOutputFile(videoUri)
-                setVideoEncodingBitRate(6000 * 1000)
-                setAudioSamplingRate(44100)
-                setAudioEncodingBitRate(128 * 1000)
+                setVideoEncodingBitRate(VIDEO_MAX_BITRATE_1080P_60)
+                setAudioSamplingRate(AUDIO_SAMPLING_RATE_44100)
+                setAudioEncodingBitRate(AUDIO_BITRATE_320K)
                 setOrientationHint(orientation)
                 try {
                     prepare()
@@ -664,4 +632,26 @@ class SetOverlayFragment : Fragment() {
             super.onStop()
         }
     }
+
+    // Request permission contract
+    private val requestPermission =
+            registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+
+                if (isGranted) Toast.makeText(mContext, "Permission is granted", Toast.LENGTH_SHORT).show()
+                else Toast.makeText(mContext, "Permission is denied", Toast.LENGTH_SHORT).show()
+            }
+
+
+    // Request multiple permissions contract
+    private val requestMultiplePermissions =
+            registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+                if (permissions.isNotEmpty()) {
+                    for ((permission, grantResult) in permissions) {
+                        if (!grantResult) {
+                            Toast.makeText(mContext, "$permission 거부되었습니다.", Toast.LENGTH_SHORT).show()
+                            Log.d("permission", "$permission denied")
+                        }
+                    }
+                }
+            }
 }
