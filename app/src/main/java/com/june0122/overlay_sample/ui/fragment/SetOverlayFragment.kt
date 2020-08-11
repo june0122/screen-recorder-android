@@ -3,6 +3,7 @@ package com.june0122.overlay_sample.ui.fragment
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.Activity.RESULT_CANCELED
 import android.app.Activity.RESULT_OK
 import android.content.Context
 import android.content.Intent
@@ -33,7 +34,8 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.Toast
 import android.widget.VideoView
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.activity.result.contract.ActivityResultContracts.*
 import androidx.annotation.RequiresApi
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
@@ -54,7 +56,6 @@ import kotlin.collections.ArrayList
 
 class SetOverlayFragment : Fragment() {
     companion object {
-        const val REQUEST_OVERLAY_PERMISSION = 1
         const val REQUEST_MEDIA_PROJECTION_SCREENSHOT = 1001
         const val REQUEST_MEDIA_PROJECTION_VIDEO = 1002
 
@@ -83,6 +84,7 @@ class SetOverlayFragment : Fragment() {
     private lateinit var screenshotImageView: ImageView
     private lateinit var params: WindowManager.LayoutParams
     private lateinit var realDisplaySize: Point
+    private lateinit var overlayIntent: Intent
 
     private var screenDensity: Int = 0
     private var displayWidth: Int = 0
@@ -114,7 +116,12 @@ class SetOverlayFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        checkPermissions()
+        overlayIntent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + context?.packageName)
+        )
+
+        checkMultiplePermissions()
         checkOverlayPermission()
 
         val displayMetrics = DisplayMetrics()
@@ -166,46 +173,6 @@ class SetOverlayFragment : Fragment() {
         )
     }
 
-    @SuppressLint("ClickableViewAccessibility")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-
-        mediaProjectionCallback = MediaProjectionCallback()
-        mediaProjection?.registerCallback(mediaProjectionCallback, null)
-
-        when (requestCode) {
-            REQUEST_OVERLAY_PERMISSION -> {
-                if (!Settings.canDrawOverlays(mContext)) {
-                    Toast.makeText(mContext, "오버레이 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
-                }
-            }
-
-            REQUEST_MEDIA_PROJECTION_SCREENSHOT -> {
-                setMediaActionOfButton(
-                        ::getScreenshot,
-                        startScreenshotButton,
-                        resultCode,
-                        data,
-                        R.drawable.ic_twotone_camera,
-                        R.string.stop_screenshot,
-                        R.string.activate_screenshot
-                )
-            }
-
-            REQUEST_MEDIA_PROJECTION_VIDEO -> {
-                setMediaActionOfButton(
-                        ::getScreenRecord,
-                        startVideoCaptureButton,
-                        resultCode,
-                        data,
-                        R.drawable.ic_twotone_videocam,
-                        R.string.stop_video_capture,
-                        R.string.activate_screen_record
-                )
-            }
-        }
-    }
-
     private fun initMediaActionOfButton(
             activatedButton: Button,
             requestCode: Int,
@@ -214,11 +181,7 @@ class SetOverlayFragment : Fragment() {
     ) {
         activatedButton.setOnClickListener {
             if (!Settings.canDrawOverlays(context)) {
-                val intent = Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:" + context?.packageName)
-                )
-                startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION)
+                requestOverlayPermission.launch(overlayIntent)
             } else {
                 when (activatedButton.isSelected) {
                     true -> {
@@ -238,7 +201,14 @@ class SetOverlayFragment : Fragment() {
                     }
 
                     false -> {
-                        startActivityForResult(mpManager?.createScreenCaptureIntent(), requestCode)
+                        Log.d("ACTION_REQUEST_CODE", "$requestCode")
+//                        startMediaProjectionAction.launch(requestCode)
+
+                        when (requestCode) {
+                            REQUEST_MEDIA_PROJECTION_SCREENSHOT -> screenshotLauncher.launch(requestCode)
+                            REQUEST_MEDIA_PROJECTION_VIDEO -> screenRecordLauncher.launch(requestCode)
+                        }
+
 
                         if (activatedButton.isSelected) {
                             when (requestCode) {
@@ -441,7 +411,7 @@ class SetOverlayFragment : Fragment() {
         toggleScreenShare(overlayButton)
     }
 
-    private fun checkPermissions() {
+    private fun checkMultiplePermissions() {
         val rejectedPermissionList = ArrayList<String>()
 
         for (permission in requiredPermissionList) {
@@ -460,17 +430,9 @@ class SetOverlayFragment : Fragment() {
         when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
                 if (!Settings.canDrawOverlays(context)) {
-                    val intent = Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:" + context?.packageName)
-                    )
-                    startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION)
+                    requestOverlayPermission.launch(overlayIntent)
                 }
             }
-//            else -> {
-//                mActivity.startService(Intent(mContext, ForegroundService::class.java))
-//                Toast.makeText(context, "서비스가 실행되었습니다.", Toast.LENGTH_SHORT).show()
-//            }
         }
     }
 
@@ -544,11 +506,6 @@ class SetOverlayFragment : Fragment() {
 
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     private fun recordScreen() {
-//        if (mediaProjection == null) {
-//            startActivityForResult(mpManager?.createScreenCaptureIntent(), REQUEST_CODE)
-//            return
-//        }
-
         virtualDisplay = createVirtualDisplay()
         mediaRecorder?.start()
     }
@@ -633,18 +590,15 @@ class SetOverlayFragment : Fragment() {
         }
     }
 
-    // Request permission contract
-    private val requestPermission =
-            registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-
-                if (isGranted) Toast.makeText(mContext, "Permission is granted", Toast.LENGTH_SHORT).show()
-                else Toast.makeText(mContext, "Permission is denied", Toast.LENGTH_SHORT).show()
+    private val requestOverlayPermission =
+            registerForActivityResult(StartActivityForResult()) {
+                if (!Settings.canDrawOverlays(mContext)) {
+                    Toast.makeText(mContext, "오버레이 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
+                }
             }
 
-
-    // Request multiple permissions contract
     private val requestMultiplePermissions =
-            registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+            registerForActivityResult(RequestMultiplePermissions()) { permissions ->
                 if (permissions.isNotEmpty()) {
                     for ((permission, grantResult) in permissions) {
                         if (!grantResult) {
@@ -654,4 +608,156 @@ class SetOverlayFragment : Fragment() {
                     }
                 }
             }
+
+    private val screenshotLauncher =
+            registerForActivityResult(ScreenshotContract()) {
+                mediaProjectionCallback = MediaProjectionCallback()
+                mediaProjection?.registerCallback(mediaProjectionCallback, null)
+            }
+
+    private val screenRecordLauncher =
+            registerForActivityResult(ScreenRecordContract()) {
+                mediaProjectionCallback = MediaProjectionCallback()
+                mediaProjection?.registerCallback(mediaProjectionCallback, null)
+            }
+
+    inner class ScreenshotContract : ActivityResultContract<Int, String>() {
+
+        override fun createIntent(context: Context, input: Int?): Intent =
+                Intent(mpManager?.createScreenCaptureIntent()).apply {
+                    putExtra("ACTION TYPE", input)
+                }
+
+        override fun parseResult(resultCode: Int, intent: Intent?): String? {
+            mediaProjectionCallback = MediaProjectionCallback()
+            mediaProjection?.registerCallback(mediaProjectionCallback, null)
+
+            when (resultCode) {
+                RESULT_OK -> {
+                    setMediaActionOfButton(
+                            ::getScreenshot,
+                            startScreenshotButton,
+                            resultCode,
+                            intent,
+                            R.drawable.ic_twotone_camera,
+                            R.string.stop_screenshot,
+                            R.string.activate_screenshot
+                    )
+                    return null
+                }
+
+                RESULT_CANCELED -> {
+                    ScreenshotService.stopService(mContext)
+                    Toast.makeText(mContext, "캡처 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
+                    return null
+                }
+
+                else -> return null
+            }
+        }
+    }
+
+    inner class ScreenRecordContract : ActivityResultContract<Int, Int>() {
+
+        override fun createIntent(context: Context, input: Int?): Intent =
+                Intent(mpManager?.createScreenCaptureIntent()).apply {
+                    putExtra("ACTION TYPE", input)
+                }
+
+        override fun parseResult(resultCode: Int, intent: Intent?): Int? {
+            mediaProjectionCallback = MediaProjectionCallback()
+            mediaProjection?.registerCallback(mediaProjectionCallback, null)
+
+            val actionType = Intent().getIntExtra("ACTION TYPE", 1111)
+            Log.d("ACTION_TYPE", "$actionType")
+
+            when (resultCode) {
+                RESULT_OK -> {
+                    setMediaActionOfButton(
+                            ::getScreenRecord,
+                            startVideoCaptureButton,
+                            resultCode,
+                            intent,
+                            R.drawable.ic_twotone_videocam,
+                            R.string.stop_video_capture,
+                            R.string.activate_screen_record
+                    )
+                    return null
+                }
+
+                RESULT_CANCELED -> {
+                    ScreenRecordService.stopService(mContext)
+                    Toast.makeText(mContext, "캡처 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
+                    return null
+                }
+
+                else -> return null
+            }
+        }
+    }
 }
+
+//    private val startMediaProjectionAction =
+//            registerForActivityResult(MediaProjectionContract()) {
+//                mediaProjectionCallback = MediaProjectionCallback()
+//                mediaProjection?.registerCallback(mediaProjectionCallback, null)
+//            }
+//
+//    inner class MediaProjectionContract : ActivityResultContract<Int, String>() {
+//
+//        override fun createIntent(context: Context, input: Int?): Intent =
+//                Intent(mpManager?.createScreenCaptureIntent()).apply {
+//                    putExtra("ACTION TYPE", input)
+//                }
+//
+//        override fun parseResult(resultCode: Int, intent: Intent?): String? {
+//
+//            val actionType = intent?.getIntExtra("ACTION TYPE", 1111)
+//
+//            mediaProjectionCallback = MediaProjectionCallback()
+//            mediaProjection?.registerCallback(mediaProjectionCallback, null)
+//
+//            Log.d("ACTION_TYPE", "$actionType")
+//
+//            when (actionType) {
+//                REQUEST_MEDIA_PROJECTION_SCREENSHOT -> {
+//                    if (resultCode == RESULT_OK) {
+//                        setMediaActionOfButton(
+//                                ::getScreenshot,
+//                                startScreenshotButton,
+//                                resultCode,
+//                                intent,
+//                                R.drawable.ic_twotone_camera,
+//                                R.string.stop_screenshot,
+//                                R.string.activate_screenshot
+//                        )
+//                        return null
+//                    } else {
+//                        ScreenshotService.stopService(mContext)
+//                        Toast.makeText(mContext, "캡처 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
+//                        return null
+//                    }
+//                }
+//
+//                REQUEST_MEDIA_PROJECTION_VIDEO -> {
+//                    if (resultCode == RESULT_OK) {
+//                        setMediaActionOfButton(
+//                                ::getScreenRecord,
+//                                startVideoCaptureButton,
+//                                resultCode,
+//                                intent,
+//                                R.drawable.ic_twotone_videocam,
+//                                R.string.stop_video_capture,
+//                                R.string.activate_screen_record
+//                        )
+//                        return null
+//                    } else {
+//                        ScreenRecordService.stopService(mContext)
+//                        Toast.makeText(mContext, "캡처 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
+//                        return null
+//                    }
+//                }
+//                else -> return null
+//            }
+//        }
+//    }
