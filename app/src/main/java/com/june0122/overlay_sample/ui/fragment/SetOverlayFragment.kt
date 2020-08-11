@@ -34,6 +34,7 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.Toast
 import android.widget.VideoView
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts.*
 import androidx.annotation.RequiresApi
@@ -183,44 +184,42 @@ class SetOverlayFragment : Fragment() {
             if (!Settings.canDrawOverlays(context)) {
                 requestOverlayPermission.launch(overlayIntent)
             } else {
-                when (activatedButton.isSelected) {
-                    true -> {
-                        when (requestCode) {
-                            REQUEST_MEDIA_PROJECTION_SCREENSHOT -> ScreenshotService.stopService(mContext)
-                            REQUEST_MEDIA_PROJECTION_VIDEO -> {
-                                ScreenRecordService.stopService(mContext)
-                                stopRecordScreen()
-                            }
+                when (activatedButton) {
+                    startScreenshotButton -> {
+                        checkButtonStatus(activatedButton, screenshotLauncher, toggleOnText, deactivateMsg, requestCode) {
+                            ScreenshotService.stopService(mContext)
                         }
-
-                        wm?.removeView(overlayView)
-                        virtualDisplay?.release()
-                        activatedButton.isSelected = false
-                        activatedButton.setText(toggleOnText)
-                        Toast.makeText(context, deactivateMsg, Toast.LENGTH_SHORT).show()
                     }
 
-                    false -> {
-                        Log.d("ACTION_REQUEST_CODE", "$requestCode")
-//                        startMediaProjectionAction.launch(requestCode)
-
-                        when (requestCode) {
-                            REQUEST_MEDIA_PROJECTION_SCREENSHOT -> screenshotLauncher.launch(requestCode)
-                            REQUEST_MEDIA_PROJECTION_VIDEO -> screenRecordLauncher.launch(requestCode)
+                    startVideoCaptureButton -> {
+                        checkButtonStatus(activatedButton, screenRecordLauncher, toggleOnText, deactivateMsg, requestCode) {
+                            ScreenRecordService.stopService(mContext)
                         }
-
-
-                        if (activatedButton.isSelected) {
-                            when (requestCode) {
-                                REQUEST_MEDIA_PROJECTION_SCREENSHOT ->
-                                    ScreenshotService.startService(mContext, "서비스가 실행 중입니다.")
-                                REQUEST_MEDIA_PROJECTION_VIDEO ->
-                                    ScreenRecordService.startService(mContext, "서비스가 실행 중입니다.")
-                            }
-                        }
-
                     }
                 }
+            }
+        }
+    }
+
+    private fun checkButtonStatus(
+            activatedButton: Button,
+            launcher: ActivityResultLauncher<Int>,
+            toggleOnText: Int,
+            deactivateMsg: Int,
+            requestCode: Int,
+            stopActivatedService: () -> Unit
+    ) {
+        when (activatedButton.isSelected) {
+            true -> {
+                stopActivatedService()
+                wm?.removeView(overlayView)
+                virtualDisplay?.release()
+                activatedButton.isSelected = false
+                activatedButton.setText(toggleOnText)
+                Toast.makeText(context, deactivateMsg, Toast.LENGTH_SHORT).show()
+            }
+            false -> {
+                launcher.launch(requestCode)
             }
         }
     }
@@ -232,70 +231,52 @@ class SetOverlayFragment : Fragment() {
             data: Intent?,
             buttonImage: Int, toggleOffText: Int, activateMsg: Int
     ) {
-        if (resultCode != RESULT_OK) {
-            when (activatedButton) {
-                startScreenshotButton -> ScreenshotService.stopService(mContext)
-                startVideoCaptureButton -> ScreenRecordService.stopService(mContext)
-            }
-            Toast.makeText(mContext, "캡처 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
+        activatedButton.isSelected = true
+        activatedButton.setText(toggleOffText)
+        mActivity.setResult(RESULT_OK)
 
-            return
+        if (data != null) {
+            when (activatedButton) {
+                startScreenshotButton -> {
+                    ScreenshotService.startService(mContext, "서비스가 실행 중입니다.")
+                    setOverlayButton(mediaAction, resultCode, data, buttonImage, activateMsg)
+                }
+
+                startVideoCaptureButton -> {
+                    ScreenRecordService.startService(mContext, "서비스가 실행 중입니다.")
+                    setOverlayButton(mediaAction, resultCode, data, buttonImage, activateMsg)
+                }
+            }
+        }
+    }
+
+    private fun setOverlayButton(mediaAction: () -> Unit, resultCode: Int, data: Intent, buttonImage: Int, activateMsg: Int) {
+        GlobalScope.launch(Main) {
+            delay(80L)
+            setUpMediaProjection(mediaAction, resultCode, data)
         }
 
-        if (data != null && resultCode == RESULT_OK && !activatedButton.isSelected) {
-            activatedButton.isSelected = true
-            activatedButton.setText(toggleOffText)
-            mActivity.setResult(RESULT_OK)
-
-            when (activatedButton) {
-                startScreenshotButton -> ScreenshotService.startService(mContext, "서비스가 실행 중입니다.")
-                startVideoCaptureButton -> ScreenRecordService.startService(mContext, "서비스가 실행 중입니다.")
-            }
-
-            GlobalScope.launch(Main) {
-                delay(80L)
-                setUpMediaProjection(mediaAction, resultCode, data)
-            }
-
-//            setUpMediaProjection(mediaAction, resultCode, data)
-
-            overlayView = View.inflate(mContext, R.layout.overlay_media_action_button, null)
-            overlayButton = overlayView.findViewById(R.id.mediaActionButton)
-            overlayButton.setImageResource(buttonImage)
-            wm = mContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            wm?.addView(overlayView, params)
-            Toast.makeText(context, activateMsg, Toast.LENGTH_SHORT).show()
-            overlayButtonListener(mediaAction)
-        }
+        overlayView = View.inflate(mContext, R.layout.overlay_media_action_button, null)
+        overlayButton = overlayView.findViewById(R.id.mediaActionButton)
+        overlayButton.setImageResource(buttonImage)
+        wm = mContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        wm?.addView(overlayView, params)
+        Toast.makeText(context, activateMsg, Toast.LENGTH_SHORT).show()
+        overlayButtonListener(mediaAction)
     }
 
     private fun overlayButtonListener(action: () -> Unit) {
         overlayButton.apply {
             setOnClickListener {
-                when (action) {
-                    ::getScreenshot -> {
-                        GlobalScope.launch(Main) {
-                            delay(80L)
-                            action()
-                            overlayView.visibility = View.VISIBLE
-                            wm?.updateViewLayout(overlayView, params)
-                        }
-                        overlayView.visibility = View.GONE
-                        wm?.updateViewLayout(overlayView, params)
-                    }
-
-                    ::getScreenRecord -> {
-                        GlobalScope.launch(Main) {
-                            delay(80L)
-                            action()
-
-                            overlayView.visibility = View.VISIBLE
-                            wm?.updateViewLayout(overlayView, params)
-                        }
-                        overlayView.visibility = View.GONE
-                        wm?.updateViewLayout(overlayView, params)
-                    }
+                GlobalScope.launch(Main) {
+                    delay(80L)
+                    action()
+                    overlayView.visibility = View.VISIBLE
+                    wm?.updateViewLayout(overlayView, params)
                 }
+                overlayView.visibility = View.GONE
+                wm?.updateViewLayout(overlayView, params)
+
             }
 
             setOnTouchListener(object : View.OnTouchListener {
@@ -370,10 +351,8 @@ class SetOverlayFragment : Fragment() {
                         )
             }
 
-            ::getScreenRecord -> {
-
-
-            }
+//            ::getScreenRecord -> {
+//            }
         }
     }
 
@@ -394,7 +373,10 @@ class SetOverlayFragment : Fragment() {
         bitmap.copyPixelsFromBuffer(buffer)
         image.close()
 
+        showScreenshotResult(bitmap)
+    }
 
+    private fun showScreenshotResult(bitmap: Bitmap) {
         GlobalScope.launch(Main) {
             delay(2500)
             screenshotImageView.visibility = View.GONE
@@ -466,16 +448,20 @@ class SetOverlayFragment : Fragment() {
             mediaRecorder?.reset()
             isRecording = false
 
-            screenRecordVideoView.apply {
-                addTranslateAnimation(this)
-                visibility = View.VISIBLE
-                setVideoURI(Uri.parse(videoUri))
-                start()
+            showScreenRecordResult()
+        }
+    }
 
-                setOnCompletionListener {
-                    screenRecordVideoView.stopPlayback()
-                    screenRecordVideoView.visibility = View.GONE
-                }
+    private fun showScreenRecordResult() {
+        screenRecordVideoView.apply {
+            addTranslateAnimation(this)
+            visibility = View.VISIBLE
+            setVideoURI(Uri.parse(videoUri))
+            start()
+
+            setOnCompletionListener {
+                screenRecordVideoView.stopPlayback()
+                screenRecordVideoView.visibility = View.GONE
             }
         }
     }
@@ -696,68 +682,3 @@ class SetOverlayFragment : Fragment() {
         }
     }
 }
-
-//    private val startMediaProjectionAction =
-//            registerForActivityResult(MediaProjectionContract()) {
-//                mediaProjectionCallback = MediaProjectionCallback()
-//                mediaProjection?.registerCallback(mediaProjectionCallback, null)
-//            }
-//
-//    inner class MediaProjectionContract : ActivityResultContract<Int, String>() {
-//
-//        override fun createIntent(context: Context, input: Int?): Intent =
-//                Intent(mpManager?.createScreenCaptureIntent()).apply {
-//                    putExtra("ACTION TYPE", input)
-//                }
-//
-//        override fun parseResult(resultCode: Int, intent: Intent?): String? {
-//
-//            val actionType = intent?.getIntExtra("ACTION TYPE", 1111)
-//
-//            mediaProjectionCallback = MediaProjectionCallback()
-//            mediaProjection?.registerCallback(mediaProjectionCallback, null)
-//
-//            Log.d("ACTION_TYPE", "$actionType")
-//
-//            when (actionType) {
-//                REQUEST_MEDIA_PROJECTION_SCREENSHOT -> {
-//                    if (resultCode == RESULT_OK) {
-//                        setMediaActionOfButton(
-//                                ::getScreenshot,
-//                                startScreenshotButton,
-//                                resultCode,
-//                                intent,
-//                                R.drawable.ic_twotone_camera,
-//                                R.string.stop_screenshot,
-//                                R.string.activate_screenshot
-//                        )
-//                        return null
-//                    } else {
-//                        ScreenshotService.stopService(mContext)
-//                        Toast.makeText(mContext, "캡처 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
-//                        return null
-//                    }
-//                }
-//
-//                REQUEST_MEDIA_PROJECTION_VIDEO -> {
-//                    if (resultCode == RESULT_OK) {
-//                        setMediaActionOfButton(
-//                                ::getScreenRecord,
-//                                startVideoCaptureButton,
-//                                resultCode,
-//                                intent,
-//                                R.drawable.ic_twotone_videocam,
-//                                R.string.stop_video_capture,
-//                                R.string.activate_screen_record
-//                        )
-//                        return null
-//                    } else {
-//                        ScreenRecordService.stopService(mContext)
-//                        Toast.makeText(mContext, "캡처 권한이 거부되었습니다.", Toast.LENGTH_SHORT).show()
-//                        return null
-//                    }
-//                }
-//                else -> return null
-//            }
-//        }
-//    }
