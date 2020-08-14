@@ -8,8 +8,9 @@ import android.hardware.display.DisplayManager
 import android.util.DisplayMetrics
 import android.view.Display
 import androidx.core.content.ContextCompat
+import java.math.RoundingMode
+import java.text.DecimalFormat
 
-//@Suppress("SameParameterValue")
 fun clipInt(min: Int, max: Int, v: Int) = when {
     v < min -> min
     v > max -> max
@@ -29,4 +30,11 @@ fun getScreenSize(context: Context) = Point().also {
     systemService<DisplayManager>(context)
             ?.getDisplay(Display.DEFAULT_DISPLAY)
             ?.getRealSize(it)
+}
+
+/** A list of all available flags : CEILING, DOWN, FLOOR, HALF_DOWN, HALF_EVEN, HALF_UP, UNNECESSARY, UP */
+fun Double.roundOffDecimal() : Double? {
+    val df = DecimalFormat("#.##")
+    df.roundingMode = RoundingMode.HALF_UP
+    return df.format(this).toDouble()
 }
