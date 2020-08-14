@@ -8,8 +8,11 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.media.MediaMetadata
 import android.os.Build
 import android.os.IBinder
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.MediaSessionCompat
 import androidx.annotation.RequiresApi
 import androidx.media.app.NotificationCompat.*
 import androidx.core.app.NotificationCompat
@@ -50,7 +53,9 @@ class ScreenshotService : Service() {
         val contentText = intent?.getStringExtra("inputExtra")
         val notificationIntent = Intent(this, MainActivity::class.java)
         val pendingIntent =
-                PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT)
+                PendingIntent.getActivity(
+                        this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT
+                )
 
         val closeIntent = PendingIntent.getBroadcast(
                 context,
@@ -61,6 +66,11 @@ class ScreenshotService : Service() {
         )
 
         val largeIconBitmap = BitmapFactory.decodeResource(resources, R.drawable.portrait_lux)
+
+        val mediaSession =
+                MediaSessionCompat(applicationContext, "screenshotSession").apply {
+                    hideMediaStyleNotificationSeekBar(this)
+                }
 
         val screenshotNotification = NotificationCompat.Builder(this, serviceId)
                 .setSmallIcon(R.drawable.ic_noti_screenshot)
@@ -75,7 +85,11 @@ class ScreenshotService : Service() {
                                 closeIntent
                         )
                 )
-                .setStyle(MediaStyle().setShowActionsInCompactView(0))
+                .setStyle(
+                        MediaStyle()
+                                .setShowActionsInCompactView(0)
+                                .setMediaSession(mediaSession.sessionToken)
+                )
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setAutoCancel(true)
                 .setLargeIcon(largeIconBitmap)
@@ -83,6 +97,14 @@ class ScreenshotService : Service() {
 
         createNotificationChannel()
         startForeground(SCREENSHOT_SERVICE_ID, screenshotNotification)
+    }
+
+    private fun hideMediaStyleNotificationSeekBar(mediaSession: MediaSessionCompat) {
+        val mediaMetadata = MediaMetadata.Builder()
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, -1L)
+                .build()
+
+        mediaSession.setMetadata(MediaMetadataCompat.fromMediaMetadata(mediaMetadata))
     }
 
     override fun onBind(intent: Intent?): IBinder? {
@@ -98,6 +120,7 @@ class ScreenshotService : Service() {
         }
     }
 
+    @Suppress("unused")
     private fun clearExistingNotifications(notificationId: Int) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.cancel(notificationId)
