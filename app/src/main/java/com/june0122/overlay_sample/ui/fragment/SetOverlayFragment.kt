@@ -42,6 +42,7 @@ import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.june0122.overlay_sample.R
+import com.june0122.overlay_sample.service.AudioCaptureService
 import com.june0122.overlay_sample.service.ScreenRecordService
 import com.june0122.overlay_sample.service.ScreenshotService
 import com.june0122.overlay_sample.utils.*
@@ -262,15 +263,18 @@ class SetOverlayFragment : Fragment() {
         wm = mContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         wm?.addView(overlayView, params)
         Toast.makeText(context, activateMsg, Toast.LENGTH_SHORT).show()
-        overlayButtonListener(mediaAction)
+        overlayButtonListener(mediaAction, data)
     }
 
-    private fun overlayButtonListener(action: () -> Unit) {
+    private fun overlayButtonListener(mediaAction: () -> Unit, data: Intent) {
         overlayButton.apply {
             setOnClickListener {
                 GlobalScope.launch(Main) {
                     delay(80L)
-                    action()
+                    mediaAction()
+
+                    if (mediaAction == ::getScreenRecord) getAudioRecord(data)
+
                     overlayView.visibility = View.VISIBLE
                     wm?.updateViewLayout(overlayView, params)
                 }
@@ -286,7 +290,6 @@ class SetOverlayFragment : Fragment() {
                             startClickTime = Calendar.getInstance().timeInMillis
                             xCoordinate = overlayView.x - event.rawX + params.x
                             yCoordinate = overlayView.y - event.rawY + params.y
-//                            touchEventLogging(event)
                             return true
                         }
 
@@ -294,7 +297,6 @@ class SetOverlayFragment : Fragment() {
                             GlobalScope.launch(Main) {
                                 delay(10L)
                                 wm?.updateViewLayout(overlayView, params)
-//                                touchEventLogging(event)
                             }
                             params.x = (event.rawX + xCoordinate).toInt()
                             params.y = (event.rawY + yCoordinate).toInt()
@@ -314,15 +316,30 @@ class SetOverlayFragment : Fragment() {
         }
     }
 
-//    private fun touchEventLogging(event: MotionEvent) {
-//        Log.d(
-//                "debug",
-//                "ACTION_MOVE : " +
-//                        "[params] ${params.x}, ${params.y} / " +
-//                        "[event] ${event.rawX}, ${event.rawY} / " +
-//                        "[coordinate] $xCoordinate, $yCoordinate"
-//        )
-//    }
+    private fun getAudioRecord(data: Intent) {
+        when (isRecording) {
+            true -> {
+                val audioCaptureIntent = Intent(mContext, AudioCaptureService::class.java).apply {
+                    action = AudioCaptureService.ACTION_START
+                    putExtra(AudioCaptureService.EXTRA_RESULT_DATA, data)
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    mContext.startForegroundService(audioCaptureIntent)
+                }
+
+                Log.d("AudioCapture", "AudioCapture Start")
+            }
+
+            false -> {
+                mContext.startService(Intent(mContext, AudioCaptureService::class.java).apply {
+                    action = AudioCaptureService.ACTION_STOP
+                })
+
+                Log.d("AudioCapture", "AudioCapture End")
+            }
+        }
+    }
 
     private fun setUpMediaProjection(mediaAction: () -> Unit, code: Int, intent: Intent) {
         mediaProjection = mpManager?.getMediaProjection(code, intent)
@@ -386,13 +403,6 @@ class SetOverlayFragment : Fragment() {
         screenshotImageView.setImageBitmap(bitmap)
     }
 
-    private fun getScreenRecord() {
-        Log.d("debug", "Screen Record")
-        Toast.makeText(context, "getScreenRecord", Toast.LENGTH_SHORT).show()
-
-        toggleScreenShare(overlayButton)
-    }
-
     private fun checkMultiplePermissions() {
         val rejectedPermissionList = ArrayList<String>()
 
@@ -433,7 +443,7 @@ class SetOverlayFragment : Fragment() {
     }
 
     @Suppress("UNUSED_PARAMETER")
-    private fun toggleScreenShare(view: View) {
+    private fun getScreenRecord() {
         if (!isRecording) {
             initRecorder()
             recordScreen()
@@ -668,6 +678,7 @@ class SetOverlayFragment : Fragment() {
                             R.string.stop_video_capture,
                             R.string.activate_screen_record
                     )
+                    Toast.makeText(mContext, "Screen Record Start", Toast.LENGTH_SHORT).show()
                     return null
                 }
 
