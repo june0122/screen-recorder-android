@@ -30,6 +30,10 @@
             android:foregroundServiceType="mediaProjection"
             android:permission="android.permission.SYSTEM_ALERT_WINDOW"/>
 
+        <service
+            android:name="com.june0122.overlay_sample.service.AudioCaptureService"
+            android:foregroundServiceType="mediaProjection" />
+
         <receiver android:name=".receiver.MyBroadcastReceiver"/>
 
         <activity android:name=".ui.activity.MainActivity">
