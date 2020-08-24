@@ -42,9 +42,7 @@ import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.june0122.overlay_sample.R
-import com.june0122.overlay_sample.service.AudioCaptureService
-import com.june0122.overlay_sample.service.ScreenRecordService
-import com.june0122.overlay_sample.service.ScreenshotService
+import com.june0122.overlay_sample.service.*
 import com.june0122.overlay_sample.utils.*
 import kotlinx.android.synthetic.main.fragment_set_overlay.*
 import kotlinx.coroutines.Dispatchers.Main
@@ -92,6 +90,7 @@ class SetOverlayFragment : Fragment() {
     private var displayWidth: Int = 0
     private var displayHeight: Int = 0
     private var displayRatio: Float = 0f
+    private var screenRecordMuxer: ScreenRecordMuxer? = null
     private var mediaProjection: MediaProjection? = null
     private var mediaRecorder: MediaRecorder? = null
     private var mediaProjectionCallback: MediaProjection.Callback? = null
@@ -103,6 +102,7 @@ class SetOverlayFragment : Fragment() {
     private var xCoordinate: Float = 0f
     private var yCoordinate: Float = 0f
     private var videoUri = ""
+    private var muxingOutputPath = ""
     private var isRecording = false
 
     override fun onAttach(context: Context) {
@@ -117,6 +117,8 @@ class SetOverlayFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        screenRecordMuxer = ScreenRecordMuxer()
 
         overlayIntent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -239,12 +241,12 @@ class SetOverlayFragment : Fragment() {
         if (data != null) {
             when (activatedButton) {
                 startScreenshotButton -> {
-                    ScreenshotService.startService(mContext, "서비스가 실행 중입니다.")
+                    ScreenshotService.startService(mContext, "서비스 실행 중")
                     setOverlayButton(mediaAction, resultCode, data, buttonImage, activateMsg)
                 }
 
                 startVideoCaptureButton -> {
-                    ScreenRecordService.startService(mContext, "서비스가 실행 중입니다.")
+                    ScreenRecordService.startService(mContext, "서비스 실행 중")
                     setOverlayButton(mediaAction, resultCode, data, buttonImage, activateMsg)
                 }
             }
@@ -335,6 +337,8 @@ class SetOverlayFragment : Fragment() {
                 mContext.startService(Intent(mContext, AudioCaptureService::class.java).apply {
                     action = AudioCaptureService.ACTION_STOP
                 })
+
+                ScreenRecordService.startService(mContext, "서비스 실행 중")
 
                 Log.d("AudioCapture", "AudioCapture End")
             }
@@ -442,6 +446,7 @@ class SetOverlayFragment : Fragment() {
         super.onDestroy()
     }
 
+    @SuppressLint("SimpleDateFormat")
     @Suppress("UNUSED_PARAMETER")
     private fun getScreenRecord() {
         if (!isRecording) {
@@ -455,6 +460,27 @@ class SetOverlayFragment : Fragment() {
             } catch (stopException: RuntimeException) {
                 stopException.printStackTrace()
             }
+
+            screenRecordMuxer?.apply {
+                muxingOutputPath = mActivity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                        .toString() + java.lang.StringBuilder("/AHAM_MUX_")
+                        .append(java.text.SimpleDateFormat("dd-MM-yyyy-hh_mm_ss")
+                                .format(Date())).append(".mp4").toString()
+
+                val audioPath = mActivity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                        .toString() + java.lang.StringBuilder("/netflix").append(".mp4").toString()
+
+                setVideoPath(videoUri)
+                setAudioPath(audioPath)
+                setOutputPath(muxingOutputPath)
+                getVideoInfo()
+                getAudioInfo()
+                writeVideoData()
+                writeAudioData()
+                stop()
+            }
+
+
             mediaRecorder?.reset()
             isRecording = false
 
@@ -466,7 +492,8 @@ class SetOverlayFragment : Fragment() {
         screenRecordVideoView.apply {
             addTranslateAnimation(this)
             visibility = View.VISIBLE
-            setVideoURI(Uri.parse(videoUri))
+            setVideoURI(Uri.parse(muxingOutputPath))
+//            setVideoURI(Uri.parse(videoUri))
             start()
 
             setOnCompletionListener {
@@ -575,10 +602,12 @@ class SetOverlayFragment : Fragment() {
 
     inner class MediaProjectionCallback : MediaProjection.Callback() {
         override fun onStop() {
+            Log.d("Callback Test", "not selected")
             if (startVideoCaptureButton.isSelected) {
                 startVideoCaptureButton.isSelected = false
                 mediaRecorder?.stop()
                 mediaRecorder?.reset()
+                Log.d("Callback Test", "selected")
             }
             mediaProjection = null
             stopRecordScreen()
@@ -678,7 +707,6 @@ class SetOverlayFragment : Fragment() {
                             R.string.stop_video_capture,
                             R.string.activate_screen_record
                     )
-                    Toast.makeText(mContext, "Screen Record Start", Toast.LENGTH_SHORT).show()
                     return null
                 }
 
