@@ -1,29 +1,18 @@
 package com.june0122.overlay_sample.service
 
 import android.app.Activity.RESULT_OK
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.media.*
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
-import android.os.Build
 import android.os.IBinder
-import android.support.v4.media.MediaMetadataCompat
-import android.support.v4.media.session.MediaSessionCompat
 import android.util.Log
-import androidx.core.app.NotificationCompat
-import com.june0122.overlay_sample.R
-import com.june0122.overlay_sample.receiver.MyBroadcastReceiver
-import com.june0122.overlay_sample.ui.activity.MainActivity
+import android.widget.Toast
 import com.june0122.overlay_sample.utils.*
 import java.io.File
 import java.io.FileOutputStream
-import androidx.media.app.NotificationCompat.*
 import java.lang.NullPointerException
 import java.text.SimpleDateFormat
 import java.util.*
@@ -31,20 +20,18 @@ import kotlin.concurrent.thread
 import kotlin.experimental.and
 
 class AudioCaptureService : Service() {
-
     companion object {
         private const val LOG_TAG = "AudioCaptureService"
-        private const val SERVICE_ID = 123
-        private const val NOTIFICATION_CHANNEL_ID = "AudioCapture channel"
 
         private const val NUM_SAMPLES_PER_READ = 1024
         private const val BYTES_PER_SAMPLE = 2 // 2 bytes since we hardcoded the PCM 16-bit format
         private const val BUFFER_SIZE_IN_BYTES = NUM_SAMPLES_PER_READ * BYTES_PER_SAMPLE
-        private const val serviceId = "Foreground Service Example"
 
         const val ACTION_START = "AudioCaptureService:Start"
         const val ACTION_STOP = "AudioCaptureService:Stop"
         const val EXTRA_RESULT_DATA = "AudioCaptureService:Extra:ResultData"
+
+        var AUDIO_PATH: File? = null
     }
 
     private lateinit var mediaProjectionManager: MediaProjectionManager
@@ -58,112 +45,31 @@ class AudioCaptureService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
-        startForeground(SERVICE_ID, NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID).build())
         mediaProjectionManager =
                 applicationContext.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val serviceChannel = NotificationChannel(serviceId, "Foreground Service Channel",
-                    NotificationManager.IMPORTANCE_DEFAULT)
-
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(serviceChannel)
-        }
-    }
-
-    private fun setScreenRecordNotification(intent: Intent?) {
-        val contentTitle = "SCREEN RECORD"
-        val contentText = intent?.getStringExtra("inputExtra")
-        val largeIconBitmap = BitmapFactory.decodeResource(resources, R.drawable.portrait_tryndamere)
-        val notificationIntent = Intent(this, MainActivity::class.java)
-        val pendingIntent =
-                PendingIntent.getActivity(
-                        this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT
-                )
-
-        val closeIntent = PendingIntent.getBroadcast(
-                context,
-                PI_CODE_DELETE_SCREEN_RECORD_SERVICE,
-                Intent(context, MyBroadcastReceiver::class.java)
-                        .apply { action = MyBroadcastReceiver.ACTION_DELETE_SCREEN_RECORD_SERVICE },
-                PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val stopRecordIntent = PendingIntent.getBroadcast(
-                context,
-                PI_CODE_STOP_SCREEN_RECORD_SERVICE,
-                Intent(context, MyBroadcastReceiver::class.java)
-                        .apply { action = MyBroadcastReceiver.ACTION_STOP_SCREEN_RECORD_SERVICE },
-                PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val mediaSession =
-                MediaSessionCompat(applicationContext, "screenRecordSession").apply {
-                    hideMediaStyleNotificationSeekBar(this)
-                }
-
-        val screenRecordNotification = NotificationCompat.Builder(this, serviceId)
-                .setSmallIcon(R.drawable.ic_noti_screen_record)
-                .setContentTitle(contentTitle)
-                .setContentText(contentText)
-                .setContentIntent(pendingIntent)
-                .setDeleteIntent(closeIntent)
-                .addAction(
-                        NotificationCompat.Action(
-                                R.drawable.ic_noti_stop,
-                                getString(R.string.stop),
-                                stopRecordIntent
-                        )
-                )
-                .addAction(
-                        NotificationCompat.Action(
-                                R.drawable.ic_noti_close,
-                                getString(R.string.close),
-                                closeIntent
-                        )
-                )
-                .setStyle(
-                        MediaStyle()
-                                .setShowActionsInCompactView(0, 1)
-                                .setMediaSession(mediaSession.sessionToken)
-                )
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .setAutoCancel(true)
-                .setLargeIcon(largeIconBitmap)
-                .build()
-
-        createNotificationChannel()
-        startForeground(SCREEN_RECORD_SERVICE_ID, screenRecordNotification)
-    }
-
-    private fun hideMediaStyleNotificationSeekBar(mediaSession: MediaSessionCompat) {
-        val mediaMetadata = MediaMetadata.Builder()
-                .putLong(MediaMetadata.METADATA_KEY_DURATION, -1L)
-                .build()
-
-        mediaSession.setMetadata(MediaMetadataCompat.fromMediaMetadata(mediaMetadata))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         return if (intent != null) {
             when (intent.action) {
                 ACTION_START -> {
-                    setScreenRecordNotification(intent)
+                    NotificationCreator.getNotification(this, context, intent)
+
                     mediaProjection = mediaProjectionManager
                             .getMediaProjection(
                                     RESULT_OK,
                                     intent.getParcelableExtra(EXTRA_RESULT_DATA) as Intent
                             ) as MediaProjection
 
+                    // 명시적 NullPointerException 사용 여부 고려 필요
                     startAudioCapture(mediaProjection ?: throw NullPointerException("mediaProjection is null"))
                     START_STICKY
                 }
 
                 ACTION_STOP -> {
                     stopAudioCapture()
+                    context.stopService(intent)
+
                     START_NOT_STICKY
                 }
 
@@ -198,6 +104,7 @@ class AudioCaptureService : Service() {
         audioRecord?.startRecording()
         audioCaptureThread = thread(start = true) {
             val outputFile = createAudioFile()
+//            AUDIO_PATH = outputFile
             Log.d(LOG_TAG, "Created file for capture target: ${outputFile.absolutePath}")
             writeAudioToFile(outputFile)
         }
@@ -248,9 +155,12 @@ class AudioCaptureService : Service() {
         audioRecord?.stop()
         audioRecord?.release()
         audioRecord = null
-
-        mediaProjection?.stop()
         stopSelf()
+
+
+        /** SetOverlayFragment() 클래스 내부의 mediaProjection 에 영향을 줌 */
+//        mediaProjection?.stop()
+//        stopSelf()
 
         val bufferSize = AudioTrack.getMinBufferSize(
                 AUDIO_SAMPLING_RATE_44100,
@@ -290,6 +200,10 @@ class AudioCaptureService : Service() {
             this[i] = 0
         }
         return bytes
+    }
+
+    override fun onDestroy() {
+        Toast.makeText(this, "Audio Capture Service Done", Toast.LENGTH_SHORT).show()
     }
 }
 
