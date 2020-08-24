@@ -3,8 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.june0122.overlay_sample">
 
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -18,25 +18,29 @@
         android:theme="@style/Theme.AppCompat.NoActionBar"
         tools:ignore="AllowBackup">
 
-        <service android:name="com.june0122.overlay_sample.service.ScreenshotService"
+        <service
+            android:name="com.june0122.overlay_sample.service.ScreenshotService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaProjection"
-            android:permission="android.permission.SYSTEM_ALERT_WINDOW"/>
+            android:permission="android.permission.SYSTEM_ALERT_WINDOW" />
 
-        <service android:name="com.june0122.overlay_sample.service.ScreenRecordService"
+        <service
+            android:name="com.june0122.overlay_sample.service.ScreenRecordService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaProjection"
-            android:permission="android.permission.SYSTEM_ALERT_WINDOW"/>
+            android:permission="android.permission.SYSTEM_ALERT_WINDOW" />
 
         <service
             android:name="com.june0122.overlay_sample.service.AudioCaptureService"
             android:foregroundServiceType="mediaProjection" />
 
-        <receiver android:name=".receiver.MyBroadcastReceiver"/>
+        <receiver android:name=".receiver.MyBroadcastReceiver" />
 
-        <activity android:name=".ui.activity.MainActivity">
+        <activity
+            android:name=".ui.activity.MainActivity"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
