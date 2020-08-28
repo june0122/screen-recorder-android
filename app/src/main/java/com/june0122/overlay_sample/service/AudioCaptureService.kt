@@ -7,13 +7,16 @@ import android.content.Intent
 import android.media.*
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.os.Environment
 import android.os.IBinder
 import android.util.Log
 import android.widget.Toast
 import com.june0122.overlay_sample.utils.*
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.lang.NullPointerException
+import java.lang.StringBuilder
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.concurrent.thread
@@ -22,7 +25,6 @@ import kotlin.experimental.and
 class AudioCaptureService : Service() {
     companion object {
         private const val LOG_TAG = "AudioCaptureService"
-
         private const val NUM_SAMPLES_PER_READ = 1024
         private const val BYTES_PER_SAMPLE = 2 // 2 bytes since we hardcoded the PCM 16-bit format
         private const val BUFFER_SIZE_IN_BYTES = NUM_SAMPLES_PER_READ * BYTES_PER_SAMPLE
@@ -30,14 +32,11 @@ class AudioCaptureService : Service() {
         const val ACTION_START = "AudioCaptureService:Start"
         const val ACTION_STOP = "AudioCaptureService:Stop"
         const val EXTRA_RESULT_DATA = "AudioCaptureService:Extra:ResultData"
-
-        var AUDIO_PATH: File? = null
     }
 
+    private lateinit var audioCaptureThread: Thread
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private var mediaProjection: MediaProjection? = null
-
-    private lateinit var audioCaptureThread: Thread
     private var audioRecord: AudioRecord? = null
 
     private val context: Context
@@ -61,7 +60,6 @@ class AudioCaptureService : Service() {
                                     intent.getParcelableExtra(EXTRA_RESULT_DATA) as Intent
                             ) as MediaProjection
 
-                    // 명시적 NullPointerException 사용 여부 고려 필요
                     startAudioCapture(mediaProjection ?: throw NullPointerException("mediaProjection is null"))
                     START_STICKY
                 }
@@ -86,7 +84,7 @@ class AudioCaptureService : Service() {
                         .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
                         .build()
 
-        // PCM signed 16 bit, little endian, stereo
+        /** PCM signed 16 bit, little endian, stereo */
         val audioFormat = AudioFormat.Builder()
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setSampleRate(AUDIO_SAMPLING_RATE_44100)
@@ -103,62 +101,40 @@ class AudioCaptureService : Service() {
 
         audioRecord?.startRecording()
         audioCaptureThread = thread(start = true) {
-            val outputFile = createAudioFile()
-//            AUDIO_PATH = outputFile
-            Log.d(LOG_TAG, "Created file for capture target: ${outputFile.absolutePath}")
-            writeAudioToFile(outputFile)
+            createMp4AudioFile()
+//            createPcmAudioFile()
         }
     }
 
-    private fun createAudioFile(): File {
-        val audioCapturesDirectory = File(getExternalFilesDir(null), "/AudioCaptures")
-        if (!audioCapturesDirectory.exists()) audioCapturesDirectory.mkdirs()
-        val timestamp = SimpleDateFormat("dd-MM-yyyy-hh-mm-ss", Locale.KOREA).format(Date())
-        val fileName = "AudioCapture-$timestamp.pcm"
-        return File(audioCapturesDirectory.absolutePath + "/" + fileName)
-    }
-
-    private fun writeAudioToFile(outputFile: File) {
-        val fileOutputStream = FileOutputStream(outputFile)
+    private fun createMp4AudioFile() {
         val capturedAudioSamples = ShortArray(NUM_SAMPLES_PER_READ)
+        val pcmEncoder = PCMEncoder(AUDIO_BITRATE_320K, AUDIO_SAMPLING_RATE_44100, STEREO_SOUND)
+        val pcm2mp4Path = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                .toString() + StringBuilder("/pcm2mp4").append(".mp4").toString()
+
+        pcmEncoder.apply {
+            setOutputPath(pcm2mp4Path)
+            prepare()
+        }
 
         while (!audioCaptureThread.isInterrupted) {
             audioRecord?.read(capturedAudioSamples, 0, NUM_SAMPLES_PER_READ)
-
-            /**
-             * This loop should be as fast as possible to avoid artifacts in the captured audio
-             * You can uncomment the following line to see the capture samples but
-             * that will incur a performance hit due to logging I/O.
-             */
-//            Log.v(LOG_TAG, "Audio samples captured: ${capturedAudioSamples.toList()}")
-
-            fileOutputStream.write(
-                    capturedAudioSamples.toByteArray(),
-                    0,
-                    BUFFER_SIZE_IN_BYTES
-            )
+//            logCapturedAudioSamples(capturedAudioSamples)
+            pcmEncoder.encode(ByteArrayInputStream(capturedAudioSamples.toByteArray()), AUDIO_SAMPLING_RATE_44100)
         }
-
-        fileOutputStream.close()
-
-        val outputFileSize = outputFile.length().toFloat() / (1024.0 * 1024.0)
-        Log.d(LOG_TAG, "Audio capture finished for ${outputFile.absolutePath}.")
-        Log.d(LOG_TAG, "File size is ${outputFileSize.roundOffDecimal()} MB.")
+        pcmEncoder.stop()
     }
 
     private fun stopAudioCapture() {
         requireNotNull(mediaProjection) { "Tried to stop audio capture, but there was no ongoing capture in place!" }
-
         audioCaptureThread.interrupt()
         audioCaptureThread.join()
-
         audioRecord?.stop()
         audioRecord?.release()
         audioRecord = null
         stopSelf()
 
-
-        /** SetOverlayFragment() 클래스 내부의 mediaProjection 에 영향을 줌 */
+        /** The two codes below affects mediaProjection inside SetOverlayFragment() class */
 //        mediaProjection?.stop()
 //        stopSelf()
 
@@ -190,9 +166,11 @@ class AudioCaptureService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * Samples get translated into bytes following "little-endianness":
+     * least significant byte first and the most significant byte last
+     */
     private fun ShortArray.toByteArray(): ByteArray {
-        // Samples get translated into bytes following "little-endianness":
-        // least significant byte first and the most significant byte last
         val bytes = ByteArray(size * 2)
         for (i in 0 until size) {
             bytes[i * 2] = (this[i] and 0x00FF).toByte()
@@ -204,6 +182,52 @@ class AudioCaptureService : Service() {
 
     override fun onDestroy() {
         Toast.makeText(this, "Audio Capture Service Done", Toast.LENGTH_SHORT).show()
+    }
+
+    @Suppress("unused")
+    private fun createPcmAudioFile() {
+        val outputFile = createAudioFile()
+        Log.d(LOG_TAG, "Created file for capture target: ${outputFile.absolutePath}")
+        writeAudioToFile(outputFile)
+    }
+
+    private fun createAudioFile(): File {
+        val audioCapturesDirectory = File(getExternalFilesDir(null), "/AudioCaptures")
+        if (!audioCapturesDirectory.exists()) audioCapturesDirectory.mkdirs()
+        val timestamp = SimpleDateFormat("dd-MM-yyyy-hh-mm-ss", Locale.KOREA).format(Date())
+        val fileName = "AudioCapture-$timestamp.pcm"
+        return File(audioCapturesDirectory.absolutePath + "/" + fileName)
+    }
+
+    private fun writeAudioToFile(outputFile: File) {
+        val fileOutputStream = FileOutputStream(outputFile)
+        val capturedAudioSamples = ShortArray(NUM_SAMPLES_PER_READ)
+
+        while (!audioCaptureThread.isInterrupted) {
+            audioRecord?.read(capturedAudioSamples, 0, NUM_SAMPLES_PER_READ)
+            logCapturedAudioSamples(capturedAudioSamples)
+            fileOutputStream.write(
+                    capturedAudioSamples.toByteArray(),
+                    0,
+                    BUFFER_SIZE_IN_BYTES
+            )
+        }
+
+        fileOutputStream.close()
+
+        val outputFileSize = outputFile.length().toFloat() / (1024.0 * 1024.0)
+        Log.d(LOG_TAG, "Audio capture finished for ${outputFile.absolutePath}.")
+        Log.d(LOG_TAG, "File size is ${outputFileSize.roundOffDecimal()} MB.")
+    }
+
+    /**
+     * This loop should be as fast as possible to avoid artifacts in the captured audio
+     * You can uncomment the following line to see the capture samples but
+     * that will incur a performance hit due to logging I/O.
+     */
+    @Suppress("unused")
+    private fun logCapturedAudioSamples(capturedAudioSamples: ShortArray) {
+        Log.v(LOG_TAG, "Audio samples captured: ${capturedAudioSamples.toList()}")
     }
 }
 
