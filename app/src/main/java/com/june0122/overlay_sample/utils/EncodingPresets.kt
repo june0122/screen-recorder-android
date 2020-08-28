@@ -5,6 +5,9 @@ package com.june0122.overlay_sample.utils
 const val Kbps = 1000
 const val Mbps = 1000000
 
+const val MONO_SOUND = 1
+const val STEREO_SOUND = 2
+
 const val VIDEO_TARGET_BITRATE_720P_60 = 20 * Mbps
 const val VIDEO_MAX_BITRATE_720P_60 = 40 * Mbps
 
