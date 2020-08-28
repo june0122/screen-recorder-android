@@ -7,19 +7,15 @@ import android.util.Log
 import android.widget.Toast
 import com.june0122.overlay_sample.service.ScreenRecordService
 import com.june0122.overlay_sample.service.ScreenshotService
-import com.june0122.overlay_sample.ui.fragment.SetOverlayFragment
 
 class MyBroadcastReceiver : BroadcastReceiver() {
-
     companion object {
         const val ACTION_DELETE_SCREENSHOT_SERVICE = "delete_screenshot_service"
         const val ACTION_DELETE_SCREEN_RECORD_SERVICE = "delete_screen_record_service"
-
         const val ACTION_STOP_SCREEN_RECORD_SERVICE = "stop_screen_record_service"
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
-
         val action = intent?.action
         Log.d("Receiver", "onReceive $action")
 
@@ -34,10 +30,7 @@ class MyBroadcastReceiver : BroadcastReceiver() {
             }
 
             ACTION_STOP_SCREEN_RECORD_SERVICE -> {
-//                SetOverlayFragment.newInstance(context)
             }
-
         }
-
     }
 }

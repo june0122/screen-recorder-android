@@ -9,38 +9,37 @@ import java.lang.Exception
 import java.nio.ByteBuffer
 
 class ScreenRecordMuxer {
-
     companion object {
-        private val TAG = StreamRecordingMuxer::class.java.simpleName
-        private const val COMPRESSED_AUDIO_FILE_MIME_TYPE = "audio/mp4a-latm"
-        private const val CODEC_TIMEOUT = 5000
+        private val TAG = ScreenRecordMuxer::class.java.simpleName
+//        private const val COMPRESSED_AUDIO_FILE_MIME_TYPE = "audio/mp4a-latm"
+//        private const val CODEC_TIMEOUT = 5000
     }
 
     // Audio state
-    private var mediaCodec: MediaCodec? = null
+//    private var mediaCodec: MediaCodec? = null
     private lateinit var mediaMuxer: MediaMuxer
     private lateinit var audioFormat: MediaFormat
     private lateinit var audioExtractor: MediaExtractor
-    private lateinit var codecInputBuffers: Array<ByteBuffer>
-    private lateinit var codecOutputBuffers: Array<ByteBuffer>
-    private var audioBufferInfo: MediaCodec.BufferInfo? = null
+//    private lateinit var codecInputBuffers: Array<ByteBuffer>
+//    private lateinit var codecOutputBuffers: Array<ByteBuffer>
+//    private var audioBufferInfo: MediaCodec.BufferInfo? = null
     private var audioPath: String = ""
     private var outputPath: String = ""
     private var audioTrackIndex = 0
     private var writeAudioTrackIndex = 0
     private var audioTrackId = 0
-    private var totalBytesRead = 0
-    private var presentationTimeUs = 0.0
+//    private var totalBytesRead = 0
+//    private var presentationTimeUs = 0.0
 
     // Video state
-    private var videoTrackId = 0
+//    private var videoTrackId = 0
     private lateinit var videoExtractor: MediaExtractor
     private lateinit var videoFormat: MediaFormat
     private var videoPath: String = ""
     private var videoTrackIndex = 0
     private var writeVideoTrackIndex = 0
     private var maxFrameInputSize = 0
-    private var rotationDegrees = 0
+//    private var rotationDegrees = 0
     private var frameRate = 0
     private var videoDuration = 0L
 
@@ -113,10 +112,8 @@ class ScreenRecordMuxer {
     fun writeVideoData() {
         val videoBufferInfo = MediaCodec.BufferInfo()
         mediaMuxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-
         writeVideoTrackIndex = mediaMuxer.addTrack(videoFormat)
         writeAudioTrackIndex = mediaMuxer.addTrack(audioFormat)
-
         mediaMuxer.start()
 
         val byteBuffer = ByteBuffer.allocate(maxFrameInputSize)
@@ -151,7 +148,6 @@ class ScreenRecordMuxer {
         val byteBuffer = ByteBuffer.allocate(maxFrameInputSize)
 
         audioExtractor.selectTrack(audioTrackIndex)
-
 
         while (true) {
             val readAudioSampleSize = audioExtractor.readSampleData(byteBuffer, 0)
@@ -205,5 +201,4 @@ class ScreenRecordMuxer {
             e.printStackTrace()
         }
     }
-
 }
